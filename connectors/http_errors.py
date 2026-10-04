@@ -104,6 +104,17 @@ def _render(status_code: int, code: str, message: str, details: dict[str, Any]) 
     )
 
 
+def render_api_error(exc: ApiError) -> JSONResponse:
+    """Render an :class:`ApiError` as the standard envelope, directly.
+
+    For code that runs *outside* the routing layer. Starlette's exception
+    handlers wrap the router, so an exception raised by middleware above it
+    escapes to the server as a 500 with no envelope and no trace id. Any
+    middleware that wants to fail a request returns this instead of raising.
+    """
+    return _render(exc.status_code, exc.code, exc.message, exc.details)
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     """Attach the handlers that normalise every failure onto one envelope."""
 

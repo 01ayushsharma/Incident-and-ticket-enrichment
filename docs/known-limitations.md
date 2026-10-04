@@ -10,18 +10,29 @@ constraint, not a list of things I would have fixed given ten more minutes.
 and the CI workflow exercises them, but `docker compose up --build` has not
 been run locally by the author. What *has* been verified locally is the same
 topology over real sockets: five processes (alarm API, ticketing API, MCP
-server over streamable HTTP, copilot backend, GUI), a real MCP session, and
-trace propagation end to end.
+server over streamable HTTP, copilot backend, GUI) and a real MCP session.
+
+Trace propagation across the MCP hop is covered by
+`tests/integration/test_mcp_transport.py`, which binds three real ports and
+asserts on the headers the Alarm API actually received - not on a value the
+copilot echoed back to itself. That test exists because the claim was made
+here before it was true: the MCP client sent no trace with a call and the
+server read none, so every tool call started a fresh `trace-mcp-<uuid>` and
+the copilot's id never reached the source systems. The id now travels in the
+MCP request's `_meta` and is rebound by a server middleware.
 
 If the compose build fails, the most likely causes are the ONNX model
 download during `rag-ingest` on a restricted network, or the MCP health
 check's assumption that `GET /mcp` returns any HTTP status rather than
 refusing the connection.
 
-**The `mypy` step in CI is `continue-on-error`.** Types are used
-consistently and pydantic validates at every boundary, but the codebase has
-not been made strictly mypy-clean. The step reports without blocking, which
-is honest rather than a green tick that means nothing.
+**`mypy` and `pip-audit` block CI.** Both used to be advisory - `mypy` with
+`continue-on-error`, `pip-audit` with a trailing `|| true` that made the
+step incapable of failing. The tree is mypy-clean at the settings in
+`pyproject.toml` (not `--strict`), so the leniency was decoration rather
+than honesty, and decoration is how a check rots unnoticed. To accept a
+specific advisory, add `--ignore-vuln <id>` with a reason rather than
+disarming the step.
 
 ## Persistence
 
@@ -142,15 +153,24 @@ code comments say this too rather than implying the regexes are a solution.
 
 ## Testing
 
-- **189 tests, ~95% coverage on the simulator**, but coverage is uneven: the
-  source systems and RAG are covered heavily, the GUI not at all. Streamlit
-  pages are hard to test meaningfully without a browser driver, so the GUI
-  is verified by hand.
+- **325 tests at 88% branch coverage**, but coverage is uneven: the source
+  systems and RAG are covered heavily, the GUI not at all. Streamlit pages
+  are hard to test meaningfully without a browser driver, so the GUI is
+  verified by hand. The per-area and per-suite breakdown is generated from
+  the coverage data in [coverage-summary.md](coverage-summary.md) rather
+  than typed in, because hand-copied counts are how they drifted apart in
+  the first place.
 - **No LLM test hits a live endpoint**, for the same reason CI has no keys.
-  The adapters are covered at 80% against mocks; the remaining gap is the
-  network call itself.
+  The adapters are covered against mocks of each provider's documented
+  response shape; the remaining gap is the network call itself.
 - **No load or concurrency testing.** The stores are thread-safe by
-  construction but this is not demonstrated under contention.
+  construction but this is not demonstrated under contention. One concrete
+  case was found and fixed rather than left to a load test: the MCP
+  execution trace used to be a list on the single shared `McpToolClient`,
+  which each `/chat` reset and appended to, so two concurrent requests
+  corrupted each other's trace. It is now a contextvar, and Starlette's
+  one-task-per-request model is the isolation boundary. Shared mutable state
+  elsewhere in the backend has not been audited to the same depth.
 - **No mutation testing**, so test quality is argued rather than measured.
 
 ## Operability

@@ -64,6 +64,7 @@ from alarm_mcp.runtime import (
     require_one_of,
     scope_body,
     tool_span,
+    trace_middleware,
 )
 from connectors.source_client import SourceSystemError
 from connectors.ticketing_client import build_idempotency_key
@@ -189,6 +190,9 @@ def build_server(settings: McpSettings | None = None) -> MCPServer:
         title="Alarm Management and Ticketing",
         version=SERVER_VERSION,
         instructions=INSTRUCTIONS,
+        # Outermost, so the caller's trace id is bound before anything else
+        # runs and every log line from this hop onwards carries it.
+        middleware=[trace_middleware],
     )
 
     # ----------------------------------------------------------------------

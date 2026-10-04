@@ -109,6 +109,76 @@ NOTES: dict[str, str] = {
     "valid result here, not an error.",
 }
 
+# Which source system each tool reaches, and therefore which credential,
+# timeout and retry budget applies to it. `check_source_systems` touches
+# both; `compute_kpi` and `rank_active_alarms_by_priority` spend the budget
+# more than once, which is why the per-tool table states the worst case
+# rather than repeating the global default.
+SYSTEM: dict[str, str] = {
+    "search_assets": "alarm-api",
+    "get_asset_metadata": "alarm-api",
+    "list_alarms": "alarm-api",
+    "get_alarm_detail": "alarm-api",
+    "rank_active_alarms_by_priority": "alarm-api",
+    "summarize_alarms": "alarm-api",
+    "get_alarm_trends": "alarm-api",
+    "correlate_alarms": "alarm-api",
+    "analyze_alarm_floods": "alarm-api",
+    "find_rationalization_candidates": "alarm-api",
+    "score_alarm_priority": "alarm-api",
+    "recommend_operator_actions": "alarm-api",
+    "compute_kpi": "alarm-api",
+    "list_kpi_definitions": "alarm-api",
+    "find_similar_tickets": "ticketing-api",
+    "list_tickets": "ticketing-api",
+    "get_ticket": "ticketing-api",
+    "create_ticket": "ticketing-api",
+    "add_ticket_comment": "ticketing-api",
+    "check_source_systems": "both",
+}
+
+CREDENTIAL = {
+    "alarm-api": "`ALARM_API_TOKEN` (bearer, server-held)",
+    "ticketing-api": "`TICKETING_API_TOKEN` (bearer, server-held)",
+    "both": "`ALARM_API_TOKEN` and `TICKETING_API_TOKEN` (bearer, server-held)",
+}
+
+# Upstream calls per invocation, where it is not one.
+CALL_COUNT: dict[str, str] = {
+    "rank_active_alarms_by_priority": "1 + 1 per candidate (`top_n`, capped at "
+    "`MCP_MAX_RANK_CANDIDATES`)",
+    "compute_kpi": "2 (generate, then execute)",
+    "check_source_systems": "2 (one health probe per system)",
+}
+
+# Tools that are not retried, and why. Everything else is a GET or an
+# idempotent POST and inherits the default policy.
+NO_RETRY: dict[str, str] = {
+    "add_ticket_comment": "no - a replayed comment would be posted twice",
+    "create_ticket": "yes - the `Idempotency-Key` makes a replay return the original ticket",
+}
+
+# The failure a caller is most likely to hit, per tool.
+LIKELY_ERROR: dict[str, str] = {
+    "search_assets": "`invalid_input` when `query` is empty.",
+    "get_asset_metadata": "`upstream` 404 when `asset_id` does not exist - "
+    "resolve the name with `search_assets` first.",
+    "get_alarm_detail": "`upstream` 404 for an unknown `alarm_id`.",
+    "list_alarms": "`invalid_input` for an inverted time window, or an "
+    "`upstream` 422 for an unsupported `sort_by`.",
+    "score_alarm_priority": "`upstream` 404 for an unknown `alarm_id`.",
+    "recommend_operator_actions": "`upstream` 404 for an unknown `alarm_id`.",
+    "compute_kpi": "`upstream` 422 when `calculation_type` is not in `list_kpi_definitions`.",
+    "find_similar_tickets": "`invalid_input` when no search criterion is given.",
+    "get_ticket": "`upstream` 404 for an unknown ticket key.",
+    "create_ticket": "`invalid_input` when `approved` is not true - the gate is "
+    "deliberate and no argument bypasses it.",
+    "add_ticket_comment": "`invalid_input` when `approved` is not true, or an "
+    "`upstream` 404 for an unknown ticket key.",
+    "check_source_systems": "none - an unreachable system is reported in the "
+    "result rather than raised.",
+}
+
 TIMEOUT_NOTE = (
     "`ALARM_API_TIMEOUT_SECONDS` (default 10s) per upstream call, with "
     "`ALARM_API_MAX_RETRIES` (default 3) retries on 408/425/429/5xx and transport "
@@ -117,16 +187,62 @@ TIMEOUT_NOTE = (
 )
 
 
+def _ref_name(schema: dict[str, Any]) -> str | None:
+    """The ``$defs`` entry a schema points at, if it points at one."""
+    ref = schema.get("$ref")
+    if not ref and len(schema.get("allOf", ())) == 1:
+        ref = schema["allOf"][0].get("$ref")
+    if isinstance(ref, str) and ref.startswith("#/$defs/"):
+        return ref.split("/")[-1]
+    return None
+
+
 def _fmt_type(schema: dict[str, Any]) -> str:
+    """Render a JSON Schema node as a type the reader can act on.
+
+    ``$ref`` is resolved to the referenced model's name, whose fields are
+    tabulated under "Nested types" in the same section. Leaving these as
+    ``any`` - which is what a naive renderer does, because a ``$ref`` node
+    carries no ``type`` of its own - told the reader nothing about the shape
+    they would actually receive. Not linked: the same model appears in
+    several tool sections, so an anchor would be ambiguous.
+    """
+    if name := _ref_name(schema):
+        return f"`{name}`"
     if "anyOf" in schema:
         parts = [_fmt_type(s) for s in schema["anyOf"] if s.get("type") != "null"]
-        return " \\| ".join(parts) + " \\| null"
+        return " \| ".join(parts) + " \| null"
+    if "enum" in schema:
+        return " \| ".join(f"`{v}`" for v in schema["enum"])
     kind = schema.get("type", "any")
     if kind == "array":
         return f"array&lt;{_fmt_type(schema.get('items', {}))}&gt;"
-    if "enum" in schema:
-        return " \\| ".join(f"`{v}`" for v in schema["enum"])
+    if kind == "object" and isinstance(schema.get("additionalProperties"), dict):
+        return f"object&lt;{_fmt_type(schema['additionalProperties'])}&gt;"
     return kind
+
+
+def _referenced(schema: dict[str, Any], defs: dict[str, Any]) -> list[str]:
+    """Every ``$defs`` name reachable from ``schema``, in discovery order."""
+    found: list[str] = []
+
+    def walk(node: Any) -> None:
+        if isinstance(node, list):
+            for item in node:
+                walk(item)
+            return
+        if not isinstance(node, dict):
+            return
+        name = _ref_name(node)
+        if name and name not in found:
+            found.append(name)
+            walk(defs.get(name, {}))
+        for key, value in node.items():
+            if key != "$defs":
+                walk(value)
+
+    walk(schema.get("properties", {}))
+    return found
 
 
 def _fmt_default(schema: dict[str, Any]) -> str:
@@ -281,7 +397,9 @@ def _header(init: Any, tools: list[Any]) -> list[str]:
         write = tool.annotations and tool.annotations.read_only_hint is False
         access = "**write**" if write else "read"
         summary = (tool.description or "").split(". ")[0].strip().rstrip(".")
-        lines.append(f"| [`{tool.name}`](#{tool.name.replace('_', '-')}) | {access} | {summary} |")
+        # GitHub keeps the underscores in a heading anchor rather than
+        # turning them into hyphens; every link in this table used to 404.
+        lines.append(f"| [`{tool.name}`](#{tool.name}) | {access} | {summary} |")
     lines.append("")
     lines.append("---")
     lines.append("")
@@ -307,6 +425,8 @@ async def _tool_section(session: Any, tool: Any) -> list[str]:
     if note := NOTES.get(tool.name):
         lines += [f"> {note}", ""]
 
+    lines += _behaviour_table(tool.name, write=bool(write))
+
     lines += ["**Input schema**", ""]
     if properties:
         lines += ["| Argument | Type | Required | Default | Description |", "|---|---|---|---|---|"]
@@ -323,10 +443,22 @@ async def _tool_section(session: Any, tool: Any) -> list[str]:
 
     output = tool.output_schema or {}
     if output.get("properties"):
-        lines += ["**Output schema (top level)**", "", "| Field | Type |", "|---|---|"]
+        defs: dict[str, Any] = output.get("$defs", {})
+        lines += ["**Output schema**", "", "| Field | Type |", "|---|---|"]
         for name, spec in output["properties"].items():
             lines.append(f"| `{name}` | {_fmt_type(spec)} |")
         lines.append("")
+
+        nested = _referenced(output, defs)
+        if nested:
+            lines += ["<details><summary>Nested types</summary>", ""]
+            for name in nested:
+                definition = defs.get(name, {})
+                lines += [f"**`{name}`**", "", "| Field | Type |", "|---|---|"]
+                for field, spec in definition.get("properties", {}).items():
+                    lines.append(f"| `{field}` | {_fmt_type(spec)} |")
+                lines.append("")
+            lines += ["</details>", ""]
 
     example = EXAMPLES.get(tool.name)
     if example is not None:
@@ -361,6 +493,39 @@ async def _tool_section(session: Any, tool: Any) -> list[str]:
 
     lines += ["---", ""]
     return lines
+
+
+def _behaviour_table(tool_name: str, *, write: bool) -> list[str]:
+    """Auth, timeout, retry and error behaviour for one tool.
+
+    The same facts are stated globally under "Conventions". They are
+    repeated per tool because that is where someone integrating a single
+    tool actually looks, and because the answers are not uniform: two tools
+    are not retried, three spend more than one upstream call, and the
+    likely failure differs for every one of them.
+    """
+    system = SYSTEM.get(tool_name, "alarm-api")
+    retry = NO_RETRY.get(
+        tool_name, "yes - up to `ALARM_API_MAX_RETRIES` (default 3) on 408/425/429/5xx"
+    )
+    budget = (
+        "`ALARM_API_TIMEOUT_SECONDS` (default 10s) per upstream call; "
+        "`MCP_TOOL_TIMEOUT_SECONDS` (default 30s) for the whole tool call"
+    )
+    return [
+        "**Behaviour**",
+        "",
+        "| | |",
+        "|---|---|",
+        f"| Source system | `{system}` |",
+        f"| Credential | {CREDENTIAL[system]} |",
+        f"| Upstream calls | {CALL_COUNT.get(tool_name, '1')} |",
+        f"| Timeout | {budget} |",
+        f"| Retried | {retry} |",
+        f"| State-changing | {'**yes**' if write else 'no'} |",
+        f"| Likely error | {LIKELY_ERROR.get(tool_name, 'See the error table under Conventions.')} |",
+        "",
+    ]
 
 
 def _underlying(tool_name: str) -> str:

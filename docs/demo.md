@@ -196,8 +196,9 @@ curl -s localhost:9000/mcp -X POST \
 make test
 ```
 
-Show 268 passing. Mention the split: simulator contract, ticketing, the ten
-Postman chaining flows replayed, MCP contracts, orchestration, RAG, and the
+Show 325 passing. Mention the split: simulator contract, ticketing, the LLM
+adapters, the Postman chaining flows replayed, MCP contracts, MCP over a
+real socket, retry and timeout behaviour, orchestration, RAG, and the
 end-to-end scenario — **none of which need an API key**.
 
 Close on the two things that matter: MCP and RAG are one workflow, not two

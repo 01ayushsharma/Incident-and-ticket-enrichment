@@ -24,6 +24,12 @@ from rag.models import Chunk
 
 logger = structlog.get_logger(__name__)
 
+# The only embedding Chroma's default function provides. `EMBEDDING_MODEL`
+# exists so the deployed model is visible in configuration and in /health,
+# not so it can be swapped - anything else needs a different embedding
+# function, so a mismatch is reported rather than silently ignored.
+SUPPORTED_EMBEDDING_MODEL = "all-MiniLM-L6-v2-onnx"
+
 _TOKEN = re.compile(r"[a-z0-9]+")
 _STOPWORDS = frozenset(
     [
@@ -92,9 +98,10 @@ def tokenise(text: str) -> list[str]:
 class ChunkStore:
     """Persistent dense store plus an in-memory BM25 index over the same chunks."""
 
-    def __init__(self, path: str, collection: str) -> None:
+    def __init__(self, path: str, collection: str, embedding_cache_dir: str | None = None) -> None:
         self.path = path
         self.collection_name = collection
+        self.embedding_cache_dir = embedding_cache_dir
         self._lock = threading.RLock()
         self._client: Any = None
         self._collection: Any = None
@@ -108,12 +115,32 @@ class ChunkStore:
             import chromadb
             from chromadb.config import Settings
 
+            self._redirect_model_cache()
             Path(self.path).mkdir(parents=True, exist_ok=True)
             self._client = chromadb.PersistentClient(
                 path=self.path,
                 settings=Settings(anonymized_telemetry=False, allow_reset=True),
             )
         return self._client
+
+    def _redirect_model_cache(self) -> None:
+        """Point Chroma's ONNX download at ``EMBEDDING_CACHE_DIR``.
+
+        Chroma hard-codes the cache to ``~/.cache/chroma/onnx_models``, which
+        in a container is a layer that does not survive a restart - so every
+        start re-downloads 79MB, and an offline start fails outright.
+        Rebinding the class attribute puts the model on the same mounted
+        volume as the index, which is what ``docker-compose.yml`` and
+        ``.env.example`` already promise. No-op when the setting is unset.
+        """
+        if not self.embedding_cache_dir:
+            return
+        from chromadb.utils.embedding_functions.onnx_mini_lm_l6_v2 import ONNXMiniLM_L6_V2
+
+        target = Path(self.embedding_cache_dir) / "onnx_models" / ONNXMiniLM_L6_V2.MODEL_NAME
+        target.mkdir(parents=True, exist_ok=True)
+        ONNXMiniLM_L6_V2.DOWNLOAD_PATH = target
+        logger.info("embedding_cache_redirected", path=str(target))
 
     def _ensure_collection(self) -> Any:
         if self._collection is None:
@@ -262,7 +289,18 @@ def get_store() -> ChunkStore:
         from rag.config import get_settings
 
         settings = get_settings()
-        _store = ChunkStore(settings.vector_store_path, settings.vector_store_collection)
+        if settings.embedding_model != SUPPORTED_EMBEDDING_MODEL:
+            logger.warning(
+                "embedding_model_unsupported",
+                configured=settings.embedding_model,
+                using=SUPPORTED_EMBEDDING_MODEL,
+                detail="EMBEDDING_MODEL is not swappable; see rag/retrieval/store.py.",
+            )
+        _store = ChunkStore(
+            settings.vector_store_path,
+            settings.vector_store_collection,
+            embedding_cache_dir=settings.embedding_cache_dir,
+        )
     return _store
 
 

@@ -40,3 +40,7 @@ desktop.ini
 # Runtime
 *.log
 .streamlit/secrets.toml
+
+# Personal preparation material - notes for the author, not for the reviewer.
+docs/video-script.md
+docs/interview-prep.md

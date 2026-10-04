@@ -70,16 +70,29 @@ class FaultInjectionMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         settings = get_settings()
-        if request.url.path == "/health" or settings.fault_rate <= 0:
+        # Both knobs are independent. Gating the delay behind `fault_rate`
+        # as well would make ALARM_API_FAULT_DELAY_SECONDS unreachable on
+        # its own, which is exactly how you want to test a timeout: a slow
+        # upstream that eventually answers, not one that fails outright.
+        if request.url.path == "/health" or (
+            settings.fault_rate <= 0 and settings.fault_delay_seconds <= 0
+        ):
             return await call_next(request)
 
         if random.random() < settings.fault_rate:
-            from connectors.http_errors import UpstreamUnavailableError
+            from connectors.http_errors import UpstreamUnavailableError, render_api_error
 
             logger.warning("fault_injected", path=request.url.path, kind="unavailable")
-            raise UpstreamUnavailableError(
-                "Injected fault: upstream temporarily unavailable.",
-                details={"retryable": True},
+            # Returned, not raised. This middleware sits above the router, so
+            # an exception from here would bypass the envelope handlers and
+            # reach the caller as a bare 500 - which would exercise the wrong
+            # path entirely, since the point of the injector is to produce
+            # the *retryable* 503 the connector backs off on.
+            return render_api_error(
+                UpstreamUnavailableError(
+                    "Injected fault: upstream temporarily unavailable.",
+                    details={"retryable": True},
+                )
             )
 
         if settings.fault_delay_seconds > 0:

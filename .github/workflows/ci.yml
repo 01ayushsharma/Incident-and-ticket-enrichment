@@ -35,9 +35,10 @@ jobs:
         run: ruff check .
       - name: Ruff format check
         run: ruff format --check .
+      # Blocking. The tree is clean, so `continue-on-error` here would only
+      # mean the check could rot without anyone noticing.
       - name: Mypy
         run: mypy services connectors mcp-servers apps rag
-        continue-on-error: true
 
   test:
     name: Tests and coverage
@@ -62,7 +63,7 @@ jobs:
           key: chroma-onnx-all-MiniLM-L6-v2
       - name: Unit tests
         run: pytest -m unit --no-header -q
-      - name: Integration tests (MCP contracts, chaining, Postman flows)
+      - name: Integration tests (MCP contracts, transport, resilience, Postman flows)
         run: pytest -m integration --no-header -q
       - name: End-to-end test (MCP + RAG in one workflow)
         run: pytest -m e2e --no-header -q
@@ -89,8 +90,12 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pip-audit detect-secrets
+      # Blocking. A published advisory against something this stack installs
+      # is a result, not a log line - `|| true` made the step unable to fail.
+      # To accept a specific finding, add `--ignore-vuln <id>` with a comment
+      # saying why, rather than disarming the whole step.
       - name: Audit dependencies for known vulnerabilities
-        run: pip-audit --strict --desc || true
+        run: pip-audit --strict --desc
       - name: Scan for committed secrets
         run: |
           detect-secrets scan --all-files \

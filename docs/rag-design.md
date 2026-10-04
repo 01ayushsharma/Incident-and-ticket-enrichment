@@ -113,6 +113,29 @@ lexical score alone. Replaced with a saturation curve, `raw / (raw + 8)`,
 which is an absolute scale comparable across queries. This was caught by a
 test, and it is the single most consequential retrieval fix in the project.
 
+### Top-k and final ranking order
+
+`RAG_TOP_K` (default **5**) chunks are returned. Each retriever is asked for
+`top_k × RAG_CANDIDATE_MULTIPLIER` (default 4, so 20) candidates first,
+because fusion can only promote a chunk that at least one retriever
+surfaced - asking both for exactly 5 would let a chunk that ranks 7th dense
+and 2nd lexical disappear before it could be fused.
+
+The order a caller receives is the result of four stages, applied in
+sequence:
+
+1. **Fuse.** `0.6 × dense + 0.4 × saturated BM25`, over the union of both
+   candidate sets. A chunk found by one retriever only scores 0 for the
+   other; it is not penalised further.
+2. **Filter.** `doc_type` is removed hard. Asset type, alarm name and site
+   adjust the score (`+0.08` per matching dimension) or drop a chunk that
+   declares a scope and contradicts the query.
+3. **Floor.** Anything below `RAG_MIN_SCORE` (default 0.32) is dropped. If
+   nothing survives, the result is empty and `low_confidence` is set - the
+   copilot says it does not know rather than citing a weak hit.
+4. **Sort and cut.** Descending by the adjusted fused score, then the first
+   `top_k`. Ties break on `chunk_id`, so the order is stable across runs.
+
 ### Filtering
 
 `doc_type` is a hard filter, applied to **both** retrievers. (It originally
@@ -133,6 +156,85 @@ most useful documents in an incident.
 
 Every returned chunk produces a citation carrying `marker`, `doc_id`,
 `title`, `heading`, `doc_type`, `source_path`, `score` and `excerpt`.
+
+### A worked example
+
+Query, as the orchestrator issues it for the acceptance scenario:
+
+```python
+retrieval.retrieve(
+    "Boiler Feed Pump 101 high discharge temperature recurring alarm",
+    asset_type="pump",
+    alarm_name="High Discharge Temperature",
+)
+```
+
+23 chunks reached the ranking stage; 5 cleared the floor. What came back,
+in the order described above:
+
+| # | Doc | Heading | Type | Fused | Dense | Lexical |
+|---|---|---|---|---:|---:|---:|
+| 1 | `OP-114` | 6. Recurring degradation | operating_procedure | 0.801 | 0.678 | 0.587 |
+| 2 | `TG-201` | Related documents | troubleshooting_guide | 0.730 | 0.630 | 0.480 |
+| 3 | `TG-201` | Symptom | troubleshooting_guide | 0.729 | 0.637 | 0.467 |
+| 4 | `KB-PUMP` | High Discharge Temperature - Cooling water flow loss | resolution_notes | 0.724 | 0.553 | 0.580 |
+| 5 | `OP-114` | 4. Abnormal condition response > 4.2 High discharge temperature | operating_procedure | 0.716 | 0.642 | 0.427 |
+
+Two things in that table are worth reading rather than skimming. Every hit
+was found by *both* retrievers, which is what a well-formed query over a
+well-chunked corpus looks like. And the top hit is not the obvious one: the
+troubleshooting guide for this exact alarm ranks second and third, while
+the operating procedure's section on *recurrence* ranks first - because the
+query said "recurring", and that is the word the question actually turns on.
+
+The citations handed to the model and rendered in the GUI:
+
+```json
+[
+  {
+    "marker": "[1]",
+    "doc_id": "OP-114",
+    "title": "Boiler Feedwater Pump Operating Procedure",
+    "heading": "6. Recurring degradation",
+    "doc_type": "operating_procedure",
+    "source_path": "OP-114-boiler-feedwater-pump-operating-procedure.md",
+    "score": 0.801,
+    "excerpt": "Where the same alarm recurs on one machine more than five times in 90 days, raise an engineering review rather than repeatedly acknowledging it. A recurring high discharge temperature or low suction pressure pattern on a critical feedwater pump is a leading indicator of seal or impeller degradation."
+  },
+  {
+    "marker": "[3]",
+    "doc_id": "TG-201",
+    "title": "Troubleshooting Guide - Pump High Discharge Temperature",
+    "heading": "Symptom",
+    "doc_type": "troubleshooting_guide",
+    "source_path": "TG-201-pump-high-discharge-temperature.md",
+    "score": 0.729,
+    "excerpt": "Pump discharge temperature has risen above the configured high alarm limit (typically 95 degC on feedwater service, 85 degC on hydrocarbon service) while the pump remains running."
+  },
+  {
+    "marker": "[4]",
+    "doc_id": "KB-PUMP",
+    "title": "Historical Resolution Notes - Pump",
+    "heading": "High Discharge Temperature - Cooling water flow loss",
+    "doc_type": "resolution_notes",
+    "source_path": "KB-resolution-notes-pump.md",
+    "score": 0.724,
+    "excerpt": "Occurred 5 time(s) on this asset class. Tickets: INC-1022, INC-1131, INC-1172, INC-1185, INC-1240. **What was found.** Cooling water isolation valve to the seal cooler had been left 60 percent closed after the previous outage. **What resolved it.** Reopened and car-sealed the cooling water isolation valve."
+  }
+]
+```
+
+`[2]` and `[5]` are elided here for length; the full set is what the model
+receives. In the answer these appear inline, so a reader can check any
+sentence against the document it came from:
+
+> Raise an engineering review rather than continuing to acknowledge the
+> alarm: OP-114 sets the threshold at more than five recurrences in 90 days,
+> and this asset is past it **[1]**. The immediate checks are the
+> minimum-flow recirculation line and cooling water to the seal cooler
+> **[3]**. On this asset class the same symptom has resolved five times by
+> reopening a cooling water isolation valve left partly closed after an
+> outage **[4]**.
 
 A citation is only worth something if it is **checkable**. A test verifies
 that the longest sentence of each excerpt appears verbatim in the named

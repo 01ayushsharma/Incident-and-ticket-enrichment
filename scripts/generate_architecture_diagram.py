@@ -475,14 +475,44 @@ def build() -> None:
             colour=COLOURS["obs"],
             dashed=True,
         )
-    arrow(ax, (0.455, 0.261), (0.525, 0.261), "", colour=COLOURS["obs"], dashed=True)
+    # Not telemetry, despite sitting among the telemetry arrows above: this
+    # is `scripts/export_resolution_notes.py`, which turns resolved tickets
+    # into nine corpus documents. Drawn in the store colour with its own
+    # dotted style and a label, because in the observability colour and the
+    # legend's dash pattern it read as "the ticketing API logs to the
+    # document store", which is not a thing that happens.
+    ax.annotate(
+        "",
+        xy=(0.525, 0.261),
+        xytext=(0.455, 0.261),
+        arrowprops={
+            "arrowstyle": "-|>",
+            "color": COLOURS["store"],
+            "linewidth": 1.5,
+            "shrinkA": 2,
+            "shrinkB": 2,
+            "linestyle": (0, (1, 2)),
+        },
+        zorder=4,
+    )
+    ax.text(
+        0.490,
+        0.270,
+        "offline export",
+        ha="center",
+        va="bottom",
+        fontsize=7.2,
+        color=COLOURS["store"],
+        zorder=5,
+        bbox={"facecolor": "white", "edgecolor": "none", "pad": 1.0, "alpha": 0.9},
+    )
 
     # ---- The write path --------------------------------------------------
     ax.add_patch(
         patches.FancyBboxPatch(
-            (0.055, 0.108),
+            (0.055, 0.098),
             0.905,
-            0.082,
+            0.098,
             boxstyle="round,pad=0.008,rounding_size=0.015",
             linewidth=1.4,
             edgecolor="#C92A2A",
@@ -492,7 +522,7 @@ def build() -> None:
     )
     ax.text(
         0.075,
-        0.170,
+        0.180,
         "THE ONLY WRITE PATH",
         fontsize=8.6,
         fontweight="bold",
@@ -501,7 +531,7 @@ def build() -> None:
     )
     ax.text(
         0.075,
-        0.146,
+        0.155,
         "POST /chat produces a DRAFT and cannot create a ticket under any plan.   "
         "Creation requires POST /tickets/approve with a draft the operator has seen "
         "and may edit.\n"
@@ -532,6 +562,14 @@ def build() -> None:
         )
     )
     ax.text(0.36, 0.062, "authentication boundary", fontsize=7.6, color="#495057")
+    ax.plot(
+        [0.545, 0.585],
+        [0.0635, 0.0635],
+        color=COLOURS["store"],
+        linewidth=1.5,
+        linestyle=(0, (1, 2)),
+    )
+    ax.text(0.593, 0.062, "offline build step", fontsize=7.6, color="#495057")
 
     ax.text(
         0.5,

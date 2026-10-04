@@ -24,9 +24,12 @@ import json
 import re
 import time
 from contextlib import AsyncExitStack
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any, Literal
+from urllib.parse import urlparse
 
+import anyio
 import structlog
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -36,6 +39,15 @@ logger = structlog.get_logger(__name__)
 
 # The MCP server embeds a JSON diagnosis after this marker in tool errors.
 _DIAGNOSIS = re.compile(r"\| diagnosis:\s*(\{.*\})\s*$", re.DOTALL)
+
+# The execution trace is per-request, not per-client. One client instance is
+# shared by every request the backend serves (it owns the MCP session), so
+# the buffer of invocations lives in a contextvar: two concurrent /chat calls
+# each get their own, instead of appending into - and resetting - each
+# other's. Starlette runs each request in its own task, so the copy of the
+# context is already the isolation boundary; tool calls made in child tasks
+# within one request still share that request's list by reference.
+_active_trace: ContextVar[list[ToolInvocation] | None] = ContextVar("mcp_invocations", default=None)
 
 
 class McpUnavailableError(RuntimeError):
@@ -127,6 +139,7 @@ class McpClientConfig:
     args: list[str] = field(default_factory=lambda: ["-m", "alarm_mcp"])
     env: dict[str, str] | None = None
     tool_timeout_seconds: float = 30.0
+    connect_timeout_seconds: float = 5.0
 
 
 class McpToolClient:
@@ -137,8 +150,6 @@ class McpToolClient:
         self._stack: AsyncExitStack | None = None
         self._session: Any = None
         self._tools: dict[str, ToolDescriptor] = {}
-        self._sequence = 0
-        self.invocations: list[ToolInvocation] = []
         self.server_name: str = ""
         self.server_version: str = ""
 
@@ -146,6 +157,9 @@ class McpToolClient:
     async def connect(self) -> None:
         """Open the session and discover tools."""
         from mcp import ClientSession
+
+        if self.config.transport == "http":
+            await self._preflight()
 
         stack = AsyncExitStack()
         try:
@@ -166,7 +180,7 @@ class McpToolClient:
             session = await stack.enter_async_context(ClientSession(read, write))
             init = await session.initialize()
         except Exception as exc:
-            await stack.aclose()
+            await _close_quietly(stack)
             raise McpUnavailableError(
                 f"Could not connect to the MCP server over {self.config.transport} "
                 f"({self.config.url if self.config.transport == 'http' else self.config.command}): "
@@ -185,6 +199,32 @@ class McpToolClient:
             transport=self.config.transport,
             tools=len(self._tools),
         )
+
+    async def _preflight(self) -> None:
+        """Confirm something is listening before handing over to the SDK.
+
+        Not belt-and-braces. When nothing is listening, the SDK's streamable
+        HTTP transport cancels its own internal task group, and the failure
+        arrives here as a `CancelledError` - a BaseException that no
+        `except Exception` catches and that cannot be told apart from our
+        caller cancelling us. The backend would then die at startup instead
+        of starting degraded and saying so on /health. A plain TCP connect
+        first turns the realistic "the MCP server is down" case into an
+        ordinary error, before any of that machinery exists.
+        """
+        parsed = urlparse(self.config.url)
+        host = parsed.hostname or "localhost"
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        try:
+            with anyio.fail_after(self.config.connect_timeout_seconds):
+                stream = await anyio.connect_tcp(host, port)
+            await stream.aclose()
+        except (OSError, TimeoutError) as exc:
+            raise McpUnavailableError(
+                f"Could not reach the MCP server at {self.config.url}: "
+                f"nothing is listening on {host}:{port} "
+                f"({type(exc).__name__})."
+            ) from exc
 
     async def aclose(self) -> None:
         if self._stack is not None:
@@ -291,9 +331,10 @@ class McpToolClient:
         rather than abandoning the whole request.
         """
         arguments = dict(arguments or {})
-        self._sequence += 1
-        sequence = self._sequence
-        trace_id = tracing.current_trace_id()
+        trace = tracing.current()
+        trace_id = trace.trace_id
+        buffer = self.invocations
+        sequence = len(buffer) + 1
         started = time.perf_counter()
 
         def record(**kwargs: Any) -> ToolInvocation:
@@ -305,7 +346,7 @@ class McpToolClient:
                 trace_id=trace_id,
                 **kwargs,
             )
-            self.invocations.append(invocation)
+            buffer.append(invocation)
             logger.info(
                 "mcp_tool_invoked",
                 tool=tool_name,
@@ -342,7 +383,16 @@ class McpToolClient:
 
         try:
             result = await self._session.call_tool(
-                tool_name, arguments, read_timeout_seconds=self.config.tool_timeout_seconds
+                tool_name,
+                arguments,
+                read_timeout_seconds=self.config.tool_timeout_seconds,
+                # The trace travels in the request's `_meta`, not in a
+                # header: the session is one long-lived connection shared by
+                # every call, so a header fixed at connect time could not
+                # identify the request. The MCP server reads these back in
+                # `alarm_mcp.runtime.trace_middleware` and rebinds them, which
+                # is what carries the id on into the source systems' logs.
+                meta=_trace_meta(trace),
             )
         except Exception as exc:
             return record(
@@ -369,17 +419,59 @@ class McpToolClient:
         )
 
     # ------------------------------------------------------------ trace view
+    @property
+    def invocations(self) -> list[ToolInvocation]:
+        """This request's invocations, created on first use."""
+        buffer = _active_trace.get()
+        if buffer is None:
+            buffer = []
+            _active_trace.set(buffer)
+        return buffer
+
     def trace(self) -> list[dict[str, Any]]:
         return [i.redacted() for i in self.invocations]
 
     def reset_trace(self) -> None:
-        self.invocations.clear()
-        self._sequence = 0
+        """Begin a fresh trace for the current request.
+
+        Rebinds rather than clears: another request may be holding the old
+        list, and truncating it under them is exactly the corruption this
+        avoids.
+        """
+        _active_trace.set([])
 
 
 # --------------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------------
+async def _close_quietly(stack: AsyncExitStack) -> None:
+    """Unwind ``stack``, shielded, swallowing a failed teardown.
+
+    A transport that failed to start can leave its context managers in a
+    state where unwinding raises in turn. That second failure says nothing
+    useful; the first one is the diagnosis the caller needs.
+    """
+    with anyio.CancelScope(shield=True):
+        try:
+            await stack.aclose()
+        except BaseException as exc:
+            logger.debug("mcp_connect_cleanup_failed", error=type(exc).__name__)
+
+
+def _trace_meta(trace: tracing.TraceContext) -> dict[str, str]:
+    """The trace fields carried on an MCP request's ``_meta``.
+
+    Spelled the same as the HTTP headers the source systems accept, so one
+    id is greppable across all six processes without translation.
+    """
+    meta = {"trace_id": trace.trace_id, "request_id": trace.request_id}
+    if trace.client_id:
+        meta["client_id"] = trace.client_id
+    if trace.metadata_tag:
+        meta["metadata_tag"] = trace.metadata_tag
+    return meta
+
+
 _JSON_TYPES: dict[str, tuple[type, ...]] = {
     "string": (str,),
     "integer": (int,),

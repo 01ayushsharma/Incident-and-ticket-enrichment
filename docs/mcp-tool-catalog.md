@@ -57,26 +57,26 @@ Tools accepting a period take either explicit `start_time`/`end_time` (ISO-8601)
 
 | Tool | Access | Purpose |
 |---|---|---|
-| [`add_ticket_comment`](#add-ticket-comment) | **write** | Append a comment to an existing ticket |
-| [`analyze_alarm_floods`](#analyze-alarm-floods) | read | Detect periods where the alarm rate exceeded an operator's capacity to respond (EEMUA 191 style flood analysis), returning each flood window with its dominant alarm and the assets involved |
-| [`check_source_systems`](#check-source-systems) | read | Probe both source systems and report reachability |
-| [`compute_kpi`](#compute-kpi) | read | Generate and execute a named KPI calculation in one step |
-| [`correlate_alarms`](#correlate-alarms) | read | Find alarms that repeatedly occur together within a lag window, and the assets that alarm alongside the ones in scope |
-| [`create_ticket`](#create-ticket) | **write** | Create an incident ticket |
-| [`find_rationalization_candidates`](#find-rationalization-candidates) | read | Identify alarms that are recurring, stale or chattering and therefore candidates for an alarm rationalization review, each with a specific recommendation |
-| [`find_similar_tickets`](#find-similar-tickets) | read | Search historical tickets resembling a situation, blending text similarity with agreement on alarm name, asset and asset type |
-| [`get_alarm_detail`](#get-alarm-detail) | read | One alarm with its asset context, measured value against limit, sibling alarms raised nearby in time, and how often it has recurred in 90 days |
-| [`get_alarm_trends`](#get-alarm-trends) | read | Bucketed time series (hourly, daily or weekly) of alarm metrics |
-| [`get_asset_metadata`](#get-asset-metadata) | read | Full engineering record for one asset: manufacturer, model, criticality, maintenance dates, design limits, related assets and alarm counts |
-| [`get_ticket`](#get-ticket) | read | Full detail for one ticket, including its description and linked alarms |
-| [`list_alarms`](#list-alarms) | read | Retrieve alarms with filters for asset, site, unit, status, severity, type and time window |
-| [`list_kpi_definitions`](#list-kpi-definitions) | read | Catalogue of every KPI the alarm system can compute, with its formula and unit |
-| [`list_tickets`](#list-tickets) | read | List tickets with filters |
-| [`rank_active_alarms_by_priority`](#rank-active-alarms-by-priority) | read | Find the highest-priority open alarms in a scope and score each one |
-| [`recommend_operator_actions`](#recommend-operator-actions) | read | Ranked operator actions and likely causes for one alarm, optionally with the asset's historical pattern for that alarm |
-| [`score_alarm_priority`](#score-alarm-priority) | read | Explainable priority score from 0 to 100 for one alarm, with the weighted factor breakdown (severity, asset criticality, recurrence, open exposure, safety function) |
-| [`search_assets`](#search-assets) | read | Resolve a plant asset by name, tag, type or id |
-| [`summarize_alarms`](#summarize-alarms) | read | Grouped KPI rollup over a time window |
+| [`add_ticket_comment`](#add_ticket_comment) | **write** | Append a comment to an existing ticket |
+| [`analyze_alarm_floods`](#analyze_alarm_floods) | read | Detect periods where the alarm rate exceeded an operator's capacity to respond (EEMUA 191 style flood analysis), returning each flood window with its dominant alarm and the assets involved |
+| [`check_source_systems`](#check_source_systems) | read | Probe both source systems and report reachability |
+| [`compute_kpi`](#compute_kpi) | read | Generate and execute a named KPI calculation in one step |
+| [`correlate_alarms`](#correlate_alarms) | read | Find alarms that repeatedly occur together within a lag window, and the assets that alarm alongside the ones in scope |
+| [`create_ticket`](#create_ticket) | **write** | Create an incident ticket |
+| [`find_rationalization_candidates`](#find_rationalization_candidates) | read | Identify alarms that are recurring, stale or chattering and therefore candidates for an alarm rationalization review, each with a specific recommendation |
+| [`find_similar_tickets`](#find_similar_tickets) | read | Search historical tickets resembling a situation, blending text similarity with agreement on alarm name, asset and asset type |
+| [`get_alarm_detail`](#get_alarm_detail) | read | One alarm with its asset context, measured value against limit, sibling alarms raised nearby in time, and how often it has recurred in 90 days |
+| [`get_alarm_trends`](#get_alarm_trends) | read | Bucketed time series (hourly, daily or weekly) of alarm metrics |
+| [`get_asset_metadata`](#get_asset_metadata) | read | Full engineering record for one asset: manufacturer, model, criticality, maintenance dates, design limits, related assets and alarm counts |
+| [`get_ticket`](#get_ticket) | read | Full detail for one ticket, including its description and linked alarms |
+| [`list_alarms`](#list_alarms) | read | Retrieve alarms with filters for asset, site, unit, status, severity, type and time window |
+| [`list_kpi_definitions`](#list_kpi_definitions) | read | Catalogue of every KPI the alarm system can compute, with its formula and unit |
+| [`list_tickets`](#list_tickets) | read | List tickets with filters |
+| [`rank_active_alarms_by_priority`](#rank_active_alarms_by_priority) | read | Find the highest-priority open alarms in a scope and score each one |
+| [`recommend_operator_actions`](#recommend_operator_actions) | read | Ranked operator actions and likely causes for one alarm, optionally with the asset's historical pattern for that alarm |
+| [`score_alarm_priority`](#score_alarm_priority) | read | Explainable priority score from 0 to 100 for one alarm, with the weighted factor breakdown (severity, asset criticality, recurrence, open exposure, safety function) |
+| [`search_assets`](#search_assets) | read | Resolve a plant asset by name, tag, type or id |
+| [`summarize_alarms`](#summarize_alarms) | read | Grouped KPI rollup over a time window |
 
 ---
 
@@ -89,6 +89,18 @@ Append a comment to an existing ticket. A write operation: only call it when the
 
 > State-changing. Not idempotent - a replay would post the comment twice - so the connector does not retry it.
 
+**Behaviour**
+
+| | |
+|---|---|
+| Source system | `ticketing-api` |
+| Credential | `TICKETING_API_TOKEN` (bearer, server-held) |
+| Upstream calls | 1 |
+| Timeout | `ALARM_API_TIMEOUT_SECONDS` (default 10s) per upstream call; `MCP_TOOL_TIMEOUT_SECONDS` (default 30s) for the whole tool call |
+| Retried | no - a replayed comment would be posted twice |
+| State-changing | **yes** |
+| Likely error | `invalid_input` when `approved` is not true, or an `upstream` 404 for an unknown ticket key. |
+
 **Input schema**
 
 | Argument | Type | Required | Default | Description |
@@ -97,16 +109,51 @@ Append a comment to an existing ticket. A write operation: only call it when the
 | `body` | string | yes | — | Comment text. |
 | `approved` | boolean | no | `false` | Must be true. |
 
-**Output schema (top level)**
+**Output schema**
 
 | Field | Type |
 |---|---|
-| `meta` | any |
-| `ticket` | any |
+| `meta` | `ToolMeta` |
+| `ticket` | `TicketRecord` |
 | `description` | string |
 | `labels` | array&lt;string&gt; |
 | `linked_alarm_ids` | array&lt;string&gt; |
 | `comment_count` | integer |
+
+<details><summary>Nested types</summary>
+
+**`ToolMeta`**
+
+| Field | Type |
+|---|---|
+| `source_system` | string |
+| `operation` | string |
+| `trace_id` | string |
+| `duration_ms` | number |
+| `upstream_calls` | integer |
+| `truncated` | boolean |
+
+**`TicketRecord`**
+
+| Field | Type |
+|---|---|
+| `key` | string |
+| `title` | string |
+| `status` | string |
+| `priority` | string |
+| `asset_id` | string \| null |
+| `asset_name` | string \| null |
+| `site` | string \| null |
+| `unit` | string \| null |
+| `alarm_name` | string \| null |
+| `assignee` | string \| null |
+| `created_at` | string |
+| `resolved_at` | string \| null |
+| `root_cause` | string \| null |
+| `resolution` | string \| null |
+| `time_to_resolve_hours` | number \| null |
+
+</details>
 
 **Example invocation**
 
@@ -128,8 +175,8 @@ Append a comment to an existing ticket. A write operation: only call it when the
   "meta": {
     "source_system": "ticketing-api",
     "operation": "add_comment",
-    "trace_id": "trace-mcp-9a7cd0533b80",
-    "duration_ms": 34.43,
+    "trace_id": "trace-mcp-f4c13edfd0da",
+    "duration_ms": 195.9,
     "upstream_calls": 1,
     "truncated": false
   },
@@ -172,6 +219,18 @@ Append a comment to an existing ticket. A write operation: only call it when the
 
 Detect periods where the alarm rate exceeded an operator's capacity to respond (EEMUA 191 style flood analysis), returning each flood window with its dominant alarm and the assets involved.
 
+**Behaviour**
+
+| | |
+|---|---|
+| Source system | `alarm-api` |
+| Credential | `ALARM_API_TOKEN` (bearer, server-held) |
+| Upstream calls | 1 |
+| Timeout | `ALARM_API_TIMEOUT_SECONDS` (default 10s) per upstream call; `MCP_TOOL_TIMEOUT_SECONDS` (default 30s) for the whole tool call |
+| Retried | yes - up to `ALARM_API_MAX_RETRIES` (default 3) on 408/425/429/5xx |
+| State-changing | no |
+| Likely error | See the error table under Conventions. |
+
 **Input schema**
 
 | Argument | Type | Required | Default | Description |
@@ -185,16 +244,42 @@ Detect periods where the alarm rate exceeded an operator's capacity to respond (
 | `end_time` | string \| null | no | `null` | ISO-8601 end. |
 | `lookback_days` | integer \| null | no | `null` |  |
 
-**Output schema (top level)**
+**Output schema**
 
 | Field | Type |
 |---|---|
-| `meta` | any |
+| `meta` | `ToolMeta` |
 | `threshold_count` | integer |
 | `rolling_window_minutes` | integer |
-| `flood_windows` | array&lt;any&gt; |
+| `flood_windows` | array&lt;`FloodWindow`&gt; |
 | `total_flood_minutes` | integer |
 | `total_alarms_in_floods` | integer |
+
+<details><summary>Nested types</summary>
+
+**`ToolMeta`**
+
+| Field | Type |
+|---|---|
+| `source_system` | string |
+| `operation` | string |
+| `trace_id` | string |
+| `duration_ms` | number |
+| `upstream_calls` | integer |
+| `truncated` | boolean |
+
+**`FloodWindow`**
+
+| Field | Type |
+|---|---|
+| `start` | string |
+| `end` | string |
+| `alarm_count` | integer |
+| `peak_rate_per_minute` | number |
+| `dominant_alarm_name` | string |
+| `asset_ids` | array&lt;string&gt; |
+
+</details>
 
 **Example invocation**
 
@@ -216,8 +301,8 @@ Detect periods where the alarm rate exceeded an operator's capacity to respond (
   "meta": {
     "source_system": "alarm-api",
     "operation": "flood_analysis",
-    "trace_id": "trace-mcp-78cb40d50158",
-    "duration_ms": 92.33,
+    "trace_id": "trace-mcp-f99dd831b151",
+    "duration_ms": 409.06,
     "upstream_calls": 1,
     "truncated": false
   },
@@ -255,17 +340,54 @@ Probe both source systems and report reachability. Use it to distinguish 'there 
 
 > Reports degradation instead of failing: an unreachable source system is a valid result here, not an error.
 
+**Behaviour**
+
+| | |
+|---|---|
+| Source system | `both` |
+| Credential | `ALARM_API_TOKEN` and `TICKETING_API_TOKEN` (bearer, server-held) |
+| Upstream calls | 2 (one health probe per system) |
+| Timeout | `ALARM_API_TIMEOUT_SECONDS` (default 10s) per upstream call; `MCP_TOOL_TIMEOUT_SECONDS` (default 30s) for the whole tool call |
+| Retried | yes - up to `ALARM_API_MAX_RETRIES` (default 3) on 408/425/429/5xx |
+| State-changing | no |
+| Likely error | none - an unreachable system is reported in the result rather than raised. |
+
 **Input schema**
 
 _No arguments._
 
-**Output schema (top level)**
+**Output schema**
 
 | Field | Type |
 |---|---|
-| `meta` | any |
-| `systems` | array&lt;any&gt; |
+| `meta` | `ToolMeta` |
+| `systems` | array&lt;`SourceSystemHealth`&gt; |
 | `all_healthy` | boolean |
+
+<details><summary>Nested types</summary>
+
+**`ToolMeta`**
+
+| Field | Type |
+|---|---|
+| `source_system` | string |
+| `operation` | string |
+| `trace_id` | string |
+| `duration_ms` | number |
+| `upstream_calls` | integer |
+| `truncated` | boolean |
+
+**`SourceSystemHealth`**
+
+| Field | Type |
+|---|---|
+| `system` | string |
+| `reachable` | boolean |
+| `status` | `ok` \| `unreachable` \| `error` |
+| `detail` | string |
+| `base_url` | string |
+
+</details>
 
 **Example invocation**
 
@@ -283,8 +405,8 @@ _No arguments._
   "meta": {
     "source_system": "mcp",
     "operation": "check_source_systems",
-    "trace_id": "trace-mcp-1ea90b51961b",
-    "duration_ms": 7.87,
+    "trace_id": "trace-mcp-742462396ffc",
+    "duration_ms": 28.34,
     "upstream_calls": 2,
     "truncated": false
   },
@@ -319,6 +441,18 @@ Generate and execute a named KPI calculation in one step. Supported: alarm_flood
 
 > Composite tool: generate then execute. Paired because the simulator holds generated calculations in memory only, so an id handed back separately could already be gone.
 
+**Behaviour**
+
+| | |
+|---|---|
+| Source system | `alarm-api` |
+| Credential | `ALARM_API_TOKEN` (bearer, server-held) |
+| Upstream calls | 2 (generate, then execute) |
+| Timeout | `ALARM_API_TIMEOUT_SECONDS` (default 10s) per upstream call; `MCP_TOOL_TIMEOUT_SECONDS` (default 30s) for the whole tool call |
+| Retried | yes - up to `ALARM_API_MAX_RETRIES` (default 3) on 408/425/429/5xx |
+| State-changing | no |
+| Likely error | `upstream` 422 when `calculation_type` is not in `list_kpi_definitions`. |
+
 **Input schema**
 
 | Argument | Type | Required | Default | Description |
@@ -331,16 +465,31 @@ Generate and execute a named KPI calculation in one step. Supported: alarm_flood
 | `end_time` | string \| null | no | `null` | ISO-8601 end. |
 | `lookback_days` | integer \| null | no | `null` |  |
 
-**Output schema (top level)**
+**Output schema**
 
 | Field | Type |
 |---|---|
-| `meta` | any |
+| `meta` | `ToolMeta` |
 | `calculation_type` | string |
 | `calculation_id` | string |
-| `result` | object |
+| `result` | object&lt;number&gt; |
 | `rows` | array&lt;object&gt; |
 | `code` | string |
+
+<details><summary>Nested types</summary>
+
+**`ToolMeta`**
+
+| Field | Type |
+|---|---|
+| `source_system` | string |
+| `operation` | string |
+| `trace_id` | string |
+| `duration_ms` | number |
+| `upstream_calls` | integer |
+| `truncated` | boolean |
+
+</details>
 
 **Example invocation**
 
@@ -362,8 +511,8 @@ Generate and execute a named KPI calculation in one step. Supported: alarm_flood
   "meta": {
     "source_system": "alarm-api",
     "operation": "compute_kpi",
-    "trace_id": "trace-mcp-23fd9ac23943",
-    "duration_ms": 16.09,
+    "trace_id": "trace-mcp-4c9f0ee043f6",
+    "duration_ms": 67.06,
     "upstream_calls": 2,
     "truncated": false
   },
@@ -422,6 +571,18 @@ Generate and execute a named KPI calculation in one step. Supported: alarm_flood
 
 Find alarms that repeatedly occur together within a lag window, and the assets that alarm alongside the ones in scope. Use it to identify likely contributing factors and to find assets whose tickets may be related.
 
+**Behaviour**
+
+| | |
+|---|---|
+| Source system | `alarm-api` |
+| Credential | `ALARM_API_TOKEN` (bearer, server-held) |
+| Upstream calls | 1 |
+| Timeout | `ALARM_API_TIMEOUT_SECONDS` (default 10s) per upstream call; `MCP_TOOL_TIMEOUT_SECONDS` (default 30s) for the whole tool call |
+| Retried | yes - up to `ALARM_API_MAX_RETRIES` (default 3) on 408/425/429/5xx |
+| State-changing | no |
+| Likely error | See the error table under Conventions. |
+
 **Input schema**
 
 | Argument | Type | Required | Default | Description |
@@ -436,15 +597,56 @@ Find alarms that repeatedly occur together within a lag window, and the assets t
 | `end_time` | string \| null | no | `null` | ISO-8601 end. |
 | `lookback_days` | integer \| null | no | `null` |  |
 
-**Output schema (top level)**
+**Output schema**
 
 | Field | Type |
 |---|---|
-| `meta` | any |
+| `meta` | `ToolMeta` |
 | `method` | string |
 | `lag_window_minutes` | integer |
-| `pairs` | array&lt;any&gt; |
-| `correlated_assets` | array&lt;any&gt; |
+| `pairs` | array&lt;`CorrelationPair`&gt; |
+| `correlated_assets` | array&lt;`CorrelatedAsset`&gt; |
+
+<details><summary>Nested types</summary>
+
+**`ToolMeta`**
+
+| Field | Type |
+|---|---|
+| `source_system` | string |
+| `operation` | string |
+| `trace_id` | string |
+| `duration_ms` | number |
+| `upstream_calls` | integer |
+| `truncated` | boolean |
+
+**`CorrelationPair`**
+
+| Field | Type |
+|---|---|
+| `alarm_name_a` | string |
+| `alarm_name_b` | string |
+| `asset_name_a` | string |
+| `asset_name_b` | string |
+| `asset_id_a` | string |
+| `asset_id_b` | string |
+| `support` | integer |
+| `confidence` | number |
+| `correlation_score` | number |
+| `median_lag_seconds` | number |
+
+**`CorrelatedAsset`**
+
+| Field | Type |
+|---|---|
+| `asset_id` | string |
+| `asset_name` | string |
+| `site` | string |
+| `unit` | string |
+| `correlation_score` | number |
+| `shared_events` | integer |
+
+</details>
 
 **Example invocation**
 
@@ -467,8 +669,8 @@ Find alarms that repeatedly occur together within a lag window, and the assets t
   "meta": {
     "source_system": "alarm-api",
     "operation": "correlation",
-    "trace_id": "trace-mcp-329f8aff68f8",
-    "duration_ms": 6.79,
+    "trace_id": "trace-mcp-ea43441d71a8",
+    "duration_ms": 23.42,
     "upstream_calls": 1,
     "truncated": false
   },
@@ -522,6 +724,18 @@ Create an incident ticket. THIS IS A WRITE OPERATION AND THE ONLY TOOL THAT CHAN
 
 > **The only state-changing tool.** Refuses unless `approved` is true, and derives an idempotency key from `approval_reference`, so a retried or repeated approval returns the existing ticket rather than opening a duplicate.
 
+**Behaviour**
+
+| | |
+|---|---|
+| Source system | `ticketing-api` |
+| Credential | `TICKETING_API_TOKEN` (bearer, server-held) |
+| Upstream calls | 1 |
+| Timeout | `ALARM_API_TIMEOUT_SECONDS` (default 10s) per upstream call; `MCP_TOOL_TIMEOUT_SECONDS` (default 30s) for the whole tool call |
+| Retried | yes - the `Idempotency-Key` makes a replay return the original ticket |
+| State-changing | **yes** |
+| Likely error | `invalid_input` when `approved` is not true - the gate is deliberate and no argument bypasses it. |
+
 **Input schema**
 
 | Argument | Type | Required | Default | Description |
@@ -540,15 +754,50 @@ Create an incident ticket. THIS IS A WRITE OPERATION AND THE ONLY TOOL THAT CHAN
 | `assignee` | string \| null | no | `null` | Assignee username. |
 | `linked_alarm_ids` | array&lt;string&gt; \| null | no | `null` | Alarm ids this incident covers. |
 
-**Output schema (top level)**
+**Output schema**
 
 | Field | Type |
 |---|---|
-| `meta` | any |
-| `ticket` | any |
+| `meta` | `ToolMeta` |
+| `ticket` | `TicketRecord` |
 | `created` | boolean |
 | `idempotency_key` | string |
 | `url_path` | string |
+
+<details><summary>Nested types</summary>
+
+**`ToolMeta`**
+
+| Field | Type |
+|---|---|
+| `source_system` | string |
+| `operation` | string |
+| `trace_id` | string |
+| `duration_ms` | number |
+| `upstream_calls` | integer |
+| `truncated` | boolean |
+
+**`TicketRecord`**
+
+| Field | Type |
+|---|---|
+| `key` | string |
+| `title` | string |
+| `status` | string |
+| `priority` | string |
+| `asset_id` | string \| null |
+| `asset_name` | string \| null |
+| `site` | string \| null |
+| `unit` | string \| null |
+| `alarm_name` | string \| null |
+| `assignee` | string \| null |
+| `created_at` | string |
+| `resolved_at` | string \| null |
+| `root_cause` | string \| null |
+| `resolution` | string \| null |
+| `time_to_resolve_hours` | number \| null |
+
+</details>
 
 **Example invocation**
 
@@ -573,8 +822,8 @@ Create an incident ticket. THIS IS A WRITE OPERATION AND THE ONLY TOOL THAT CHAN
   "meta": {
     "source_system": "ticketing-api",
     "operation": "create_ticket",
-    "trace_id": "trace-mcp-6eef21bd39f6",
-    "duration_ms": 10.98,
+    "trace_id": "trace-mcp-39bf7faa14ee",
+    "duration_ms": 30.78,
     "upstream_calls": 1,
     "truncated": false
   },
@@ -589,7 +838,7 @@ Create an incident ticket. THIS IS A WRITE OPERATION AND THE ONLY TOOL THAT CHAN
     "unit": null,
     "alarm_name": null,
     "assignee": null,
-    "created_at": "2026-10-04T10:30:51.080081Z",
+    "created_at": "2026-10-04T18:22:56.434650Z",
     "resolved_at": null,
     "root_cause": null,
     "resolution": null,
@@ -610,6 +859,18 @@ Create an incident ticket. THIS IS A WRITE OPERATION AND THE ONLY TOOL THAT CHAN
 
 Identify alarms that are recurring, stale or chattering and therefore candidates for an alarm rationalization review, each with a specific recommendation.
 
+**Behaviour**
+
+| | |
+|---|---|
+| Source system | `alarm-api` |
+| Credential | `ALARM_API_TOKEN` (bearer, server-held) |
+| Upstream calls | 1 |
+| Timeout | `ALARM_API_TIMEOUT_SECONDS` (default 10s) per upstream call; `MCP_TOOL_TIMEOUT_SECONDS` (default 30s) for the whole tool call |
+| Retried | yes - up to `ALARM_API_MAX_RETRIES` (default 3) on 408/425/429/5xx |
+| State-changing | no |
+| Likely error | See the error table under Conventions. |
+
 **Input schema**
 
 | Argument | Type | Required | Default | Description |
@@ -623,14 +884,42 @@ Identify alarms that are recurring, stale or chattering and therefore candidates
 | `end_time` | string \| null | no | `null` | ISO-8601 end. |
 | `lookback_days` | integer \| null | no | `null` |  |
 
-**Output schema (top level)**
+**Output schema**
 
 | Field | Type |
 |---|---|
-| `meta` | any |
+| `meta` | `ToolMeta` |
 | `recurrence_threshold` | integer |
 | `stale_minutes_threshold` | integer |
-| `candidates` | array&lt;any&gt; |
+| `candidates` | array&lt;`RationalizationCandidate`&gt; |
+
+<details><summary>Nested types</summary>
+
+**`ToolMeta`**
+
+| Field | Type |
+|---|---|
+| `source_system` | string |
+| `operation` | string |
+| `trace_id` | string |
+| `duration_ms` | number |
+| `upstream_calls` | integer |
+| `truncated` | boolean |
+
+**`RationalizationCandidate`**
+
+| Field | Type |
+|---|---|
+| `asset_id` | string |
+| `asset_name` | string |
+| `alarm_name` | string |
+| `occurrences` | integer |
+| `reason` | string |
+| `median_duration_seconds` | number |
+| `suppression_candidate` | boolean |
+| `recommendation` | string |
+
+</details>
 
 **Example invocation**
 
@@ -652,8 +941,8 @@ Identify alarms that are recurring, stale or chattering and therefore candidates
   "meta": {
     "source_system": "alarm-api",
     "operation": "rationalization_candidates",
-    "trace_id": "trace-mcp-cd13625be928",
-    "duration_ms": 4.97,
+    "trace_id": "trace-mcp-33ffcc4298e3",
+    "duration_ms": 20.17,
     "upstream_calls": 1,
     "truncated": false
   },
@@ -699,6 +988,18 @@ Identify alarms that are recurring, stale or chattering and therefore candidates
 
 Search historical tickets resembling a situation, blending text similarity with agreement on alarm name, asset and asset type. Use resolved_only=true to answer 'how was this fixed before'. Reports low_confidence when nothing clears the threshold - say so rather than presenting weak matches as precedent.
 
+**Behaviour**
+
+| | |
+|---|---|
+| Source system | `ticketing-api` |
+| Credential | `TICKETING_API_TOKEN` (bearer, server-held) |
+| Upstream calls | 1 |
+| Timeout | `ALARM_API_TIMEOUT_SECONDS` (default 10s) per upstream call; `MCP_TOOL_TIMEOUT_SECONDS` (default 30s) for the whole tool call |
+| Retried | yes - up to `ALARM_API_MAX_RETRIES` (default 3) on 408/425/429/5xx |
+| State-changing | no |
+| Likely error | `invalid_input` when no search criterion is given. |
+
 **Input schema**
 
 | Argument | Type | Required | Default | Description |
@@ -713,14 +1014,57 @@ Search historical tickets resembling a situation, blending text similarity with 
 | `limit` | integer | no | `5` |  |
 | `min_score` | number | no | `0.25` | Similarity floor; below it the result is low confidence. |
 
-**Output schema (top level)**
+**Output schema**
 
 | Field | Type |
 |---|---|
-| `meta` | any |
+| `meta` | `ToolMeta` |
 | `count` | integer |
-| `results` | array&lt;any&gt; |
+| `results` | array&lt;`SimilarTicket`&gt; |
 | `low_confidence` | boolean |
+
+<details><summary>Nested types</summary>
+
+**`ToolMeta`**
+
+| Field | Type |
+|---|---|
+| `source_system` | string |
+| `operation` | string |
+| `trace_id` | string |
+| `duration_ms` | number |
+| `upstream_calls` | integer |
+| `truncated` | boolean |
+
+**`SimilarTicket`**
+
+| Field | Type |
+|---|---|
+| `ticket` | `TicketRecord` |
+| `score` | number |
+| `matched_on` | array&lt;string&gt; |
+
+**`TicketRecord`**
+
+| Field | Type |
+|---|---|
+| `key` | string |
+| `title` | string |
+| `status` | string |
+| `priority` | string |
+| `asset_id` | string \| null |
+| `asset_name` | string \| null |
+| `site` | string \| null |
+| `unit` | string \| null |
+| `alarm_name` | string \| null |
+| `assignee` | string \| null |
+| `created_at` | string |
+| `resolved_at` | string \| null |
+| `root_cause` | string \| null |
+| `resolution` | string \| null |
+| `time_to_resolve_hours` | number \| null |
+
+</details>
 
 **Example invocation**
 
@@ -743,8 +1087,8 @@ Search historical tickets resembling a situation, blending text similarity with 
   "meta": {
     "source_system": "ticketing-api",
     "operation": "search_similar",
-    "trace_id": "trace-mcp-cfdad80cce2c",
-    "duration_ms": 4.82,
+    "trace_id": "trace-mcp-7ed586a197b8",
+    "duration_ms": 16.4,
     "upstream_calls": 1,
     "truncated": false
   },
@@ -796,24 +1140,81 @@ Search historical tickets resembling a situation, blending text similarity with 
 
 One alarm with its asset context, measured value against limit, sibling alarms raised nearby in time, and how often it has recurred in 90 days.
 
+**Behaviour**
+
+| | |
+|---|---|
+| Source system | `alarm-api` |
+| Credential | `ALARM_API_TOKEN` (bearer, server-held) |
+| Upstream calls | 1 |
+| Timeout | `ALARM_API_TIMEOUT_SECONDS` (default 10s) per upstream call; `MCP_TOOL_TIMEOUT_SECONDS` (default 30s) for the whole tool call |
+| Retried | yes - up to `ALARM_API_MAX_RETRIES` (default 3) on 408/425/429/5xx |
+| State-changing | no |
+| Likely error | `upstream` 404 for an unknown `alarm_id`. |
+
 **Input schema**
 
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `alarm_id` | string | yes | — | Alarm id, e.g. 'ALM-005007'. |
 
-**Output schema (top level)**
+**Output schema**
 
 | Field | Type |
 |---|---|
-| `meta` | any |
-| `alarm` | any |
-| `asset` | any |
+| `meta` | `ToolMeta` |
+| `alarm` | `AlarmRecord` |
+| `asset` | `AssetSummary` |
 | `related_alarm_ids` | array&lt;string&gt; |
 | `occurrences_last_90_days` | integer |
 | `measured_value` | number \| null |
 | `limit_value` | number \| null |
 | `unit_of_measure` | string \| null |
+
+<details><summary>Nested types</summary>
+
+**`ToolMeta`**
+
+| Field | Type |
+|---|---|
+| `source_system` | string |
+| `operation` | string |
+| `trace_id` | string |
+| `duration_ms` | number |
+| `upstream_calls` | integer |
+| `truncated` | boolean |
+
+**`AlarmRecord`**
+
+| Field | Type |
+|---|---|
+| `alarm_id` | string |
+| `asset_id` | string |
+| `asset_name` | string |
+| `site` | string |
+| `unit` | string |
+| `alarm_name` | string |
+| `alarm_type` | string |
+| `severity` | string |
+| `status` | string |
+| `start_time` | string |
+| `ack_delay_seconds` | integer \| null |
+| `duration_seconds` | integer \| null |
+| `description` | string |
+
+**`AssetSummary`**
+
+| Field | Type |
+|---|---|
+| `asset_id` | string |
+| `asset_name` | string |
+| `asset_type` | string |
+| `site` | string |
+| `unit` | string |
+| `criticality` | string |
+| `tag` | string |
+
+</details>
 
 **Example invocation**
 
@@ -833,8 +1234,8 @@ One alarm with its asset context, measured value against limit, sibling alarms r
   "meta": {
     "source_system": "alarm-api",
     "operation": "get_alarm",
-    "trace_id": "trace-mcp-00f1269f6897",
-    "duration_ms": 3.85,
+    "trace_id": "trace-mcp-0f2d25ef2b9a",
+    "duration_ms": 12.92,
     "upstream_calls": 1,
     "truncated": false
   },
@@ -879,6 +1280,18 @@ One alarm with its asset context, measured value against limit, sibling alarms r
 
 Bucketed time series (hourly, daily or weekly) of alarm metrics. Use it to establish whether a problem is getting worse over a period.
 
+**Behaviour**
+
+| | |
+|---|---|
+| Source system | `alarm-api` |
+| Credential | `ALARM_API_TOKEN` (bearer, server-held) |
+| Upstream calls | 1 |
+| Timeout | `ALARM_API_TIMEOUT_SECONDS` (default 10s) per upstream call; `MCP_TOOL_TIMEOUT_SECONDS` (default 30s) for the whole tool call |
+| Retried | yes - up to `ALARM_API_MAX_RETRIES` (default 3) on 408/425/429/5xx |
+| State-changing | no |
+| Likely error | See the error table under Conventions. |
+
 **Input schema**
 
 | Argument | Type | Required | Default | Description |
@@ -892,15 +1305,37 @@ Bucketed time series (hourly, daily or weekly) of alarm metrics. Use it to estab
 | `end_time` | string \| null | no | `null` | ISO-8601 end. |
 | `lookback_days` | integer \| null | no | `null` |  |
 
-**Output schema (top level)**
+**Output schema**
 
 | Field | Type |
 |---|---|
-| `meta` | any |
+| `meta` | `ToolMeta` |
 | `bucket` | string |
 | `metrics` | array&lt;string&gt; |
-| `series` | array&lt;any&gt; |
+| `series` | array&lt;`TrendPoint`&gt; |
 | `non_empty_buckets` | integer |
+
+<details><summary>Nested types</summary>
+
+**`ToolMeta`**
+
+| Field | Type |
+|---|---|
+| `source_system` | string |
+| `operation` | string |
+| `trace_id` | string |
+| `duration_ms` | number |
+| `upstream_calls` | integer |
+| `truncated` | boolean |
+
+**`TrendPoint`**
+
+| Field | Type |
+|---|---|
+| `bucket_start` | string |
+| `values` | object&lt;number&gt; |
+
+</details>
 
 **Example invocation**
 
@@ -927,8 +1362,8 @@ Bucketed time series (hourly, daily or weekly) of alarm metrics. Use it to estab
   "meta": {
     "source_system": "alarm-api",
     "operation": "alarm_trends",
-    "trace_id": "trace-mcp-0e2e1f92e095",
-    "duration_ms": 4.95,
+    "trace_id": "trace-mcp-7ae5240f08c7",
+    "duration_ms": 18.28,
     "upstream_calls": 1,
     "truncated": false
   },
@@ -1008,18 +1443,68 @@ Bucketed time series (hourly, daily or weekly) of alarm metrics. Use it to estab
 
 Full engineering record for one asset: manufacturer, model, criticality, maintenance dates, design limits, related assets and alarm counts. Use it to enrich an incident with asset context.
 
+**Behaviour**
+
+| | |
+|---|---|
+| Source system | `alarm-api` |
+| Credential | `ALARM_API_TOKEN` (bearer, server-held) |
+| Upstream calls | 1 |
+| Timeout | `ALARM_API_TIMEOUT_SECONDS` (default 10s) per upstream call; `MCP_TOOL_TIMEOUT_SECONDS` (default 30s) for the whole tool call |
+| Retried | yes - up to `ALARM_API_MAX_RETRIES` (default 3) on 408/425/429/5xx |
+| State-changing | no |
+| Likely error | `upstream` 404 when `asset_id` does not exist - resolve the name with `search_assets` first. |
+
 **Input schema**
 
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `asset_id` | string | yes | — | Asset id from search_assets, e.g. 'AST-0001'. |
 
-**Output schema (top level)**
+**Output schema**
 
 | Field | Type |
 |---|---|
-| `meta` | any |
-| `asset` | any |
+| `meta` | `ToolMeta` |
+| `asset` | `AssetDetail` |
+
+<details><summary>Nested types</summary>
+
+**`ToolMeta`**
+
+| Field | Type |
+|---|---|
+| `source_system` | string |
+| `operation` | string |
+| `trace_id` | string |
+| `duration_ms` | number |
+| `upstream_calls` | integer |
+| `truncated` | boolean |
+
+**`AssetDetail`**
+
+| Field | Type |
+|---|---|
+| `asset_id` | string |
+| `asset_name` | string |
+| `asset_type` | string |
+| `site` | string |
+| `unit` | string |
+| `criticality` | string |
+| `tag` | string |
+| `manufacturer` | string |
+| `model_number` | string |
+| `serial_number` | string |
+| `installation_date` | string |
+| `last_maintenance_date` | string |
+| `next_maintenance_due` | string |
+| `operating_hours` | integer |
+| `related_asset_ids` | array&lt;string&gt; |
+| `design_limits` | object&lt;number&gt; |
+| `alarm_count_total` | integer |
+| `alarm_count_active` | integer |
+
+</details>
 
 **Example invocation**
 
@@ -1039,8 +1524,8 @@ Full engineering record for one asset: manufacturer, model, criticality, mainten
   "meta": {
     "source_system": "alarm-api",
     "operation": "asset_metadata",
-    "trace_id": "trace-mcp-a42a0e53fd73",
-    "duration_ms": 2.96,
+    "trace_id": "trace-mcp-03c46e14e142",
+    "duration_ms": 12.69,
     "upstream_calls": 1,
     "truncated": false
   },
@@ -1086,22 +1571,69 @@ Full engineering record for one asset: manufacturer, model, criticality, mainten
 
 Full detail for one ticket, including its description and linked alarms.
 
+**Behaviour**
+
+| | |
+|---|---|
+| Source system | `ticketing-api` |
+| Credential | `TICKETING_API_TOKEN` (bearer, server-held) |
+| Upstream calls | 1 |
+| Timeout | `ALARM_API_TIMEOUT_SECONDS` (default 10s) per upstream call; `MCP_TOOL_TIMEOUT_SECONDS` (default 30s) for the whole tool call |
+| Retried | yes - up to `ALARM_API_MAX_RETRIES` (default 3) on 408/425/429/5xx |
+| State-changing | no |
+| Likely error | `upstream` 404 for an unknown ticket key. |
+
 **Input schema**
 
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `key` | string | yes | — | Ticket key, e.g. 'INC-1042'. |
 
-**Output schema (top level)**
+**Output schema**
 
 | Field | Type |
 |---|---|
-| `meta` | any |
-| `ticket` | any |
+| `meta` | `ToolMeta` |
+| `ticket` | `TicketRecord` |
 | `description` | string |
 | `labels` | array&lt;string&gt; |
 | `linked_alarm_ids` | array&lt;string&gt; |
 | `comment_count` | integer |
+
+<details><summary>Nested types</summary>
+
+**`ToolMeta`**
+
+| Field | Type |
+|---|---|
+| `source_system` | string |
+| `operation` | string |
+| `trace_id` | string |
+| `duration_ms` | number |
+| `upstream_calls` | integer |
+| `truncated` | boolean |
+
+**`TicketRecord`**
+
+| Field | Type |
+|---|---|
+| `key` | string |
+| `title` | string |
+| `status` | string |
+| `priority` | string |
+| `asset_id` | string \| null |
+| `asset_name` | string \| null |
+| `site` | string \| null |
+| `unit` | string \| null |
+| `alarm_name` | string \| null |
+| `assignee` | string \| null |
+| `created_at` | string |
+| `resolved_at` | string \| null |
+| `root_cause` | string \| null |
+| `resolution` | string \| null |
+| `time_to_resolve_hours` | number \| null |
+
+</details>
 
 **Example invocation**
 
@@ -1121,8 +1653,8 @@ Full detail for one ticket, including its description and linked alarms.
   "meta": {
     "source_system": "ticketing-api",
     "operation": "get_ticket",
-    "trace_id": "trace-mcp-a61267ad814f",
-    "duration_ms": 3.36,
+    "trace_id": "trace-mcp-d268dd83e32f",
+    "duration_ms": 10.65,
     "upstream_calls": 1,
     "truncated": false
   },
@@ -1165,6 +1697,18 @@ Full detail for one ticket, including its description and linked alarms.
 
 Retrieve alarms with filters for asset, site, unit, status, severity, type and time window. Use status='active' for what is currently in alarm. Results are paginated and capped to protect the context window.
 
+**Behaviour**
+
+| | |
+|---|---|
+| Source system | `alarm-api` |
+| Credential | `ALARM_API_TOKEN` (bearer, server-held) |
+| Upstream calls | 1 |
+| Timeout | `ALARM_API_TIMEOUT_SECONDS` (default 10s) per upstream call; `MCP_TOOL_TIMEOUT_SECONDS` (default 30s) for the whole tool call |
+| Retried | yes - up to `ALARM_API_MAX_RETRIES` (default 3) on 408/425/429/5xx |
+| State-changing | no |
+| Likely error | `invalid_input` for an inverted time window, or an `upstream` 422 for an unsupported `sort_by`. |
+
 **Input schema**
 
 | Argument | Type | Required | Default | Description |
@@ -1184,16 +1728,49 @@ Retrieve alarms with filters for asset, site, unit, status, severity, type and t
 | `sort_by` | string | no | `"start_time"` | start_time \| severity \| status \| alarm_name \| asset_name |
 | `sort_order` | string | no | `"desc"` | asc \| desc |
 
-**Output schema (top level)**
+**Output schema**
 
 | Field | Type |
 |---|---|
-| `meta` | any |
-| `alarms` | array&lt;any&gt; |
+| `meta` | `ToolMeta` |
+| `alarms` | array&lt;`AlarmRecord`&gt; |
 | `total_items` | integer |
 | `page` | integer |
 | `page_size` | integer |
 | `has_next` | boolean |
+
+<details><summary>Nested types</summary>
+
+**`ToolMeta`**
+
+| Field | Type |
+|---|---|
+| `source_system` | string |
+| `operation` | string |
+| `trace_id` | string |
+| `duration_ms` | number |
+| `upstream_calls` | integer |
+| `truncated` | boolean |
+
+**`AlarmRecord`**
+
+| Field | Type |
+|---|---|
+| `alarm_id` | string |
+| `asset_id` | string |
+| `asset_name` | string |
+| `site` | string |
+| `unit` | string |
+| `alarm_name` | string |
+| `alarm_type` | string |
+| `severity` | string |
+| `status` | string |
+| `start_time` | string |
+| `ack_delay_seconds` | integer \| null |
+| `duration_seconds` | integer \| null |
+| `description` | string |
+
+</details>
 
 **Example invocation**
 
@@ -1217,8 +1794,8 @@ Retrieve alarms with filters for asset, site, unit, status, severity, type and t
   "meta": {
     "source_system": "alarm-api",
     "operation": "list_alarms",
-    "trace_id": "trace-mcp-7306512b929c",
-    "duration_ms": 5.63,
+    "trace_id": "trace-mcp-cd4d39571d8a",
+    "duration_ms": 34.05,
     "upstream_calls": 1,
     "truncated": true
   },
@@ -1270,16 +1847,53 @@ Retrieve alarms with filters for asset, site, unit, status, severity, type and t
 
 Catalogue of every KPI the alarm system can compute, with its formula and unit. Call this when unsure which KPI name to pass to summarize_alarms or get_alarm_trends.
 
+**Behaviour**
+
+| | |
+|---|---|
+| Source system | `alarm-api` |
+| Credential | `ALARM_API_TOKEN` (bearer, server-held) |
+| Upstream calls | 1 |
+| Timeout | `ALARM_API_TIMEOUT_SECONDS` (default 10s) per upstream call; `MCP_TOOL_TIMEOUT_SECONDS` (default 30s) for the whole tool call |
+| Retried | yes - up to `ALARM_API_MAX_RETRIES` (default 3) on 408/425/429/5xx |
+| State-changing | no |
+| Likely error | See the error table under Conventions. |
+
 **Input schema**
 
 _No arguments._
 
-**Output schema (top level)**
+**Output schema**
 
 | Field | Type |
 |---|---|
-| `meta` | any |
-| `kpis` | array&lt;any&gt; |
+| `meta` | `ToolMeta` |
+| `kpis` | array&lt;`KpiDefinition`&gt; |
+
+<details><summary>Nested types</summary>
+
+**`ToolMeta`**
+
+| Field | Type |
+|---|---|
+| `source_system` | string |
+| `operation` | string |
+| `trace_id` | string |
+| `duration_ms` | number |
+| `upstream_calls` | integer |
+| `truncated` | boolean |
+
+**`KpiDefinition`**
+
+| Field | Type |
+|---|---|
+| `name` | string |
+| `display_name` | string |
+| `description` | string |
+| `unit` | string |
+| `formula` | string |
+
+</details>
 
 **Example invocation**
 
@@ -1297,8 +1911,8 @@ _No arguments._
   "meta": {
     "source_system": "alarm-api",
     "operation": "kpi_definitions",
-    "trace_id": "trace-mcp-f12b84739741",
-    "duration_ms": 2.93,
+    "trace_id": "trace-mcp-2554e9946cbb",
+    "duration_ms": 9.47,
     "upstream_calls": 1,
     "truncated": false
   },
@@ -1351,6 +1965,18 @@ _No arguments._
 
 List tickets with filters. Pass several asset_ids to answer 'show open tickets linked to correlated assets'; combine with open_only=true for what is still outstanding.
 
+**Behaviour**
+
+| | |
+|---|---|
+| Source system | `ticketing-api` |
+| Credential | `TICKETING_API_TOKEN` (bearer, server-held) |
+| Upstream calls | 1 |
+| Timeout | `ALARM_API_TIMEOUT_SECONDS` (default 10s) per upstream call; `MCP_TOOL_TIMEOUT_SECONDS` (default 30s) for the whole tool call |
+| Retried | yes - up to `ALARM_API_MAX_RETRIES` (default 3) on 408/425/429/5xx |
+| State-changing | no |
+| Likely error | See the error table under Conventions. |
+
 **Input schema**
 
 | Argument | Type | Required | Default | Description |
@@ -1364,15 +1990,50 @@ List tickets with filters. Pass several asset_ids to answer 'show open tickets l
 | `page` | integer | no | `1` |  |
 | `page_size` | integer | no | `25` |  |
 
-**Output schema (top level)**
+**Output schema**
 
 | Field | Type |
 |---|---|
-| `meta` | any |
-| `tickets` | array&lt;any&gt; |
+| `meta` | `ToolMeta` |
+| `tickets` | array&lt;`TicketRecord`&gt; |
 | `total_items` | integer |
 | `page` | integer |
 | `has_next` | boolean |
+
+<details><summary>Nested types</summary>
+
+**`ToolMeta`**
+
+| Field | Type |
+|---|---|
+| `source_system` | string |
+| `operation` | string |
+| `trace_id` | string |
+| `duration_ms` | number |
+| `upstream_calls` | integer |
+| `truncated` | boolean |
+
+**`TicketRecord`**
+
+| Field | Type |
+|---|---|
+| `key` | string |
+| `title` | string |
+| `status` | string |
+| `priority` | string |
+| `asset_id` | string \| null |
+| `asset_name` | string \| null |
+| `site` | string \| null |
+| `unit` | string \| null |
+| `alarm_name` | string \| null |
+| `assignee` | string \| null |
+| `created_at` | string |
+| `resolved_at` | string \| null |
+| `root_cause` | string \| null |
+| `resolution` | string \| null |
+| `time_to_resolve_hours` | number \| null |
+
+</details>
 
 **Example invocation**
 
@@ -1396,8 +2057,8 @@ List tickets with filters. Pass several asset_ids to answer 'show open tickets l
   "meta": {
     "source_system": "ticketing-api",
     "operation": "list_tickets",
-    "trace_id": "trace-mcp-0a6aa799998f",
-    "duration_ms": 3.75,
+    "trace_id": "trace-mcp-4c5a827b2a66",
+    "duration_ms": 13.71,
     "upstream_calls": 1,
     "truncated": true
   },
@@ -1413,7 +2074,7 @@ List tickets with filters. Pass several asset_ids to answer 'show open tickets l
       "unit": null,
       "alarm_name": null,
       "assignee": null,
-      "created_at": "2026-10-04T10:30:51.080081Z",
+      "created_at": "2026-10-04T18:22:56.434650Z",
       "resolved_at": null,
       "root_cause": null,
       "resolution": null,
@@ -1454,6 +2115,18 @@ Find the highest-priority open alarms in a scope and score each one. This is the
 
 > Composite tool: one alarm listing plus one priority score per candidate. `meta.upstream_calls` reports the real cost.
 
+**Behaviour**
+
+| | |
+|---|---|
+| Source system | `alarm-api` |
+| Credential | `ALARM_API_TOKEN` (bearer, server-held) |
+| Upstream calls | 1 + 1 per candidate (`top_n`, capped at `MCP_MAX_RANK_CANDIDATES`) |
+| Timeout | `ALARM_API_TIMEOUT_SECONDS` (default 10s) per upstream call; `MCP_TOOL_TIMEOUT_SECONDS` (default 30s) for the whole tool call |
+| Retried | yes - up to `ALARM_API_MAX_RETRIES` (default 3) on 408/425/429/5xx |
+| State-changing | no |
+| Likely error | See the error table under Conventions. |
+
 **Input schema**
 
 | Argument | Type | Required | Default | Description |
@@ -1465,14 +2138,56 @@ Find the highest-priority open alarms in a scope and score each one. This is the
 | `include_acknowledged` | boolean | no | `true` | Also consider acknowledged-but-not-cleared alarms. |
 | `top_n` | integer | no | `5` | How many to return. |
 
-**Output schema (top level)**
+**Output schema**
 
 | Field | Type |
 |---|---|
-| `meta` | any |
-| `alarms` | array&lt;any&gt; |
+| `meta` | `ToolMeta` |
+| `alarms` | array&lt;`RankedAlarm`&gt; |
 | `considered` | integer |
 | `scored` | integer |
+
+<details><summary>Nested types</summary>
+
+**`ToolMeta`**
+
+| Field | Type |
+|---|---|
+| `source_system` | string |
+| `operation` | string |
+| `trace_id` | string |
+| `duration_ms` | number |
+| `upstream_calls` | integer |
+| `truncated` | boolean |
+
+**`RankedAlarm`**
+
+| Field | Type |
+|---|---|
+| `alarm` | `AlarmRecord` |
+| `priority_score` | number |
+| `priority_band` | string |
+| `rationale` | string |
+
+**`AlarmRecord`**
+
+| Field | Type |
+|---|---|
+| `alarm_id` | string |
+| `asset_id` | string |
+| `asset_name` | string |
+| `site` | string |
+| `unit` | string |
+| `alarm_name` | string |
+| `alarm_type` | string |
+| `severity` | string |
+| `status` | string |
+| `start_time` | string |
+| `ack_delay_seconds` | integer \| null |
+| `duration_seconds` | integer \| null |
+| `description` | string |
+
+</details>
 
 **Example invocation**
 
@@ -1493,8 +2208,8 @@ Find the highest-priority open alarms in a scope and score each one. This is the
   "meta": {
     "source_system": "alarm-api",
     "operation": "rank_active_alarms_by_priority",
-    "trace_id": "trace-mcp-c0500d117576",
-    "duration_ms": 18.01,
+    "trace_id": "trace-mcp-8662c2a5e769",
+    "duration_ms": 63.02,
     "upstream_calls": 5,
     "truncated": true
   },
@@ -1545,6 +2260,18 @@ Find the highest-priority open alarms in a scope and score each one. This is the
 
 Ranked operator actions and likely causes for one alarm, optionally with the asset's historical pattern for that alarm. These are the source system's engineered recommendations - combine them with retrieved procedures rather than treating either alone as complete.
 
+**Behaviour**
+
+| | |
+|---|---|
+| Source system | `alarm-api` |
+| Credential | `ALARM_API_TOKEN` (bearer, server-held) |
+| Upstream calls | 1 |
+| Timeout | `ALARM_API_TIMEOUT_SECONDS` (default 10s) per upstream call; `MCP_TOOL_TIMEOUT_SECONDS` (default 30s) for the whole tool call |
+| Retried | yes - up to `ALARM_API_MAX_RETRIES` (default 3) on 408/425/429/5xx |
+| State-changing | no |
+| Likely error | `upstream` 404 for an unknown `alarm_id`. |
+
 **Input schema**
 
 | Argument | Type | Required | Default | Description |
@@ -1553,18 +2280,61 @@ Ranked operator actions and likely causes for one alarm, optionally with the ass
 | `include_related` | boolean | no | `true` | Count alarms raised nearby in time. |
 | `include_historical_pattern` | boolean | no | `true` | Include recurrence interval and trend. |
 
-**Output schema (top level)**
+**Output schema**
 
 | Field | Type |
 |---|---|
-| `meta` | any |
+| `meta` | `ToolMeta` |
 | `alarm_id` | string |
 | `alarm_name` | string |
 | `severity` | string |
-| `recommended_actions` | array&lt;any&gt; |
-| `likely_causes` | array&lt;any&gt; |
+| `recommended_actions` | array&lt;`RecommendedAction`&gt; |
+| `likely_causes` | array&lt;`LikelyCause`&gt; |
 | `related_alarm_count` | integer |
-| `historical_pattern` | any \| null |
+| `historical_pattern` | `HistoricalPattern` \| null |
+
+<details><summary>Nested types</summary>
+
+**`ToolMeta`**
+
+| Field | Type |
+|---|---|
+| `source_system` | string |
+| `operation` | string |
+| `trace_id` | string |
+| `duration_ms` | number |
+| `upstream_calls` | integer |
+| `truncated` | boolean |
+
+**`RecommendedAction`**
+
+| Field | Type |
+|---|---|
+| `rank` | integer |
+| `action` | string |
+| `rationale` | string |
+| `expected_outcome` | string |
+| `estimated_minutes` | integer |
+
+**`LikelyCause`**
+
+| Field | Type |
+|---|---|
+| `cause` | string |
+| `confidence` | number |
+| `evidence` | string |
+
+**`HistoricalPattern`**
+
+| Field | Type |
+|---|---|
+| `occurrences_last_90_days` | integer |
+| `median_duration_seconds` | number |
+| `recurrence_interval_hours` | number \| null |
+| `most_common_hour_utc` | integer \| null |
+| `trend` | string |
+
+</details>
 
 **Example invocation**
 
@@ -1584,8 +2354,8 @@ Ranked operator actions and likely causes for one alarm, optionally with the ass
   "meta": {
     "source_system": "alarm-api",
     "operation": "operator_recommendations",
-    "trace_id": "trace-mcp-8facd19f3162",
-    "duration_ms": 5.29,
+    "trace_id": "trace-mcp-76fb66f038b8",
+    "duration_ms": 27.44,
     "upstream_calls": 1,
     "truncated": false
   },
@@ -1630,24 +2400,61 @@ Ranked operator actions and likely causes for one alarm, optionally with the ass
 
 Explainable priority score from 0 to 100 for one alarm, with the weighted factor breakdown (severity, asset criticality, recurrence, open exposure, safety function). Include the breakdown in an incident so the ranking can be justified.
 
+**Behaviour**
+
+| | |
+|---|---|
+| Source system | `alarm-api` |
+| Credential | `ALARM_API_TOKEN` (bearer, server-held) |
+| Upstream calls | 1 |
+| Timeout | `ALARM_API_TIMEOUT_SECONDS` (default 10s) per upstream call; `MCP_TOOL_TIMEOUT_SECONDS` (default 30s) for the whole tool call |
+| Retried | yes - up to `ALARM_API_MAX_RETRIES` (default 3) on 408/425/429/5xx |
+| State-changing | no |
+| Likely error | `upstream` 404 for an unknown `alarm_id`. |
+
 **Input schema**
 
 | Argument | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `alarm_id` | string | yes | — | Alarm id to score. |
 
-**Output schema (top level)**
+**Output schema**
 
 | Field | Type |
 |---|---|
-| `meta` | any |
+| `meta` | `ToolMeta` |
 | `alarm_id` | string |
 | `asset_id` | string |
 | `asset_name` | string |
 | `priority_score` | number |
 | `priority_band` | string |
-| `factors` | array&lt;any&gt; |
+| `factors` | array&lt;`PriorityFactor`&gt; |
 | `rationale` | string |
+
+<details><summary>Nested types</summary>
+
+**`ToolMeta`**
+
+| Field | Type |
+|---|---|
+| `source_system` | string |
+| `operation` | string |
+| `trace_id` | string |
+| `duration_ms` | number |
+| `upstream_calls` | integer |
+| `truncated` | boolean |
+
+**`PriorityFactor`**
+
+| Field | Type |
+|---|---|
+| `name` | string |
+| `weight` | number |
+| `value` | number |
+| `contribution` | number |
+| `explanation` | string |
+
+</details>
 
 **Example invocation**
 
@@ -1667,8 +2474,8 @@ Explainable priority score from 0 to 100 for one alarm, with the weighted factor
   "meta": {
     "source_system": "alarm-api",
     "operation": "priority_score",
-    "trace_id": "trace-mcp-1a9b41c0787d",
-    "duration_ms": 57.18,
+    "trace_id": "trace-mcp-73c6716e4259",
+    "duration_ms": 210.04,
     "upstream_calls": 1,
     "truncated": false
   },
@@ -1727,6 +2534,18 @@ Explainable priority score from 0 to 100 for one alarm, with the weighted factor
 
 Resolve a plant asset by name, tag, type or id. Always the first step when a request names equipment in prose, such as 'Boiler Feed Pump 101' or 'the compressors in Unit 3'. Returns ranked matches with asset_id.
 
+**Behaviour**
+
+| | |
+|---|---|
+| Source system | `alarm-api` |
+| Credential | `ALARM_API_TOKEN` (bearer, server-held) |
+| Upstream calls | 1 |
+| Timeout | `ALARM_API_TIMEOUT_SECONDS` (default 10s) per upstream call; `MCP_TOOL_TIMEOUT_SECONDS` (default 30s) for the whole tool call |
+| Retried | yes - up to `ALARM_API_MAX_RETRIES` (default 3) on 408/425/429/5xx |
+| State-changing | no |
+| Likely error | `invalid_input` when `query` is empty. |
+
 **Input schema**
 
 | Argument | Type | Required | Default | Description |
@@ -1737,14 +2556,41 @@ Resolve a plant asset by name, tag, type or id. Always the first step when a req
 | `asset_type` | string \| null | no | `null` | Restrict to a type, e.g. 'pump'. |
 | `limit` | integer | no | `10` | Max results. |
 
-**Output schema (top level)**
+**Output schema**
 
 | Field | Type |
 |---|---|
-| `meta` | any |
+| `meta` | `ToolMeta` |
 | `query` | string |
 | `count` | integer |
-| `assets` | array&lt;any&gt; |
+| `assets` | array&lt;`AssetSummary`&gt; |
+
+<details><summary>Nested types</summary>
+
+**`ToolMeta`**
+
+| Field | Type |
+|---|---|
+| `source_system` | string |
+| `operation` | string |
+| `trace_id` | string |
+| `duration_ms` | number |
+| `upstream_calls` | integer |
+| `truncated` | boolean |
+
+**`AssetSummary`**
+
+| Field | Type |
+|---|---|
+| `asset_id` | string |
+| `asset_name` | string |
+| `asset_type` | string |
+| `site` | string |
+| `unit` | string |
+| `criticality` | string |
+| `tag` | string |
+
+</details>
 
 **Example invocation**
 
@@ -1765,8 +2611,8 @@ Resolve a plant asset by name, tag, type or id. Always the first step when a req
   "meta": {
     "source_system": "alarm-api",
     "operation": "search_assets",
-    "trace_id": "trace-mcp-7af9703dc0f4",
-    "duration_ms": 3.79,
+    "trace_id": "trace-mcp-7eba2a9d1f31",
+    "duration_ms": 12.4,
     "upstream_calls": 1,
     "truncated": false
   },
@@ -1795,6 +2641,18 @@ Resolve a plant asset by name, tag, type or id. Always the first step when a req
 
 Grouped KPI rollup over a time window. Group by any of alarm_name, asset_id, asset_name, severity, status, unit, site, alarm_type. KPIs include alarm_count, critical_count, recurring_rate, avg_ack_delay, avg_duration and suppression_candidate_rate. Use list_kpi_definitions for the full catalogue.
 
+**Behaviour**
+
+| | |
+|---|---|
+| Source system | `alarm-api` |
+| Credential | `ALARM_API_TOKEN` (bearer, server-held) |
+| Upstream calls | 1 |
+| Timeout | `ALARM_API_TIMEOUT_SECONDS` (default 10s) per upstream call; `MCP_TOOL_TIMEOUT_SECONDS` (default 30s) for the whole tool call |
+| Retried | yes - up to `ALARM_API_MAX_RETRIES` (default 3) on 408/425/429/5xx |
+| State-changing | no |
+| Likely error | See the error table under Conventions. |
+
 **Input schema**
 
 | Argument | Type | Required | Default | Description |
@@ -1810,15 +2668,37 @@ Grouped KPI rollup over a time window. Group by any of alarm_name, asset_id, ass
 | `end_time` | string \| null | no | `null` | ISO-8601 end. |
 | `lookback_days` | integer \| null | no | `null` |  |
 
-**Output schema (top level)**
+**Output schema**
 
 | Field | Type |
 |---|---|
-| `meta` | any |
+| `meta` | `ToolMeta` |
 | `total_alarms` | integer |
 | `group_by` | array&lt;string&gt; |
 | `kpis` | array&lt;string&gt; |
-| `groups` | array&lt;any&gt; |
+| `groups` | array&lt;`SummaryGroup`&gt; |
+
+<details><summary>Nested types</summary>
+
+**`ToolMeta`**
+
+| Field | Type |
+|---|---|
+| `source_system` | string |
+| `operation` | string |
+| `trace_id` | string |
+| `duration_ms` | number |
+| `upstream_calls` | integer |
+| `truncated` | boolean |
+
+**`SummaryGroup`**
+
+| Field | Type |
+|---|---|
+| `key` | object&lt;string&gt; |
+| `metrics` | object&lt;number&gt; |
+
+</details>
 
 **Example invocation**
 
@@ -1848,8 +2728,8 @@ Grouped KPI rollup over a time window. Group by any of alarm_name, asset_id, ass
   "meta": {
     "source_system": "alarm-api",
     "operation": "alarm_summary",
-    "trace_id": "trace-mcp-8f572238a1be",
-    "duration_ms": 5.05,
+    "trace_id": "trace-mcp-ef9ee199eef5",
+    "duration_ms": 17.29,
     "upstream_calls": 1,
     "truncated": false
   },

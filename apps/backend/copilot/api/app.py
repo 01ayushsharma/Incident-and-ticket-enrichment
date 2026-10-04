@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import time
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from typing import Any
 
 import structlog
@@ -63,6 +64,11 @@ class TraceMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         context = tracing.from_headers(request.headers)
+        if not context.client_id:
+            # Name the hop when the caller did not. Without this the MCP
+            # server and both source systems log a trace with no origin,
+            # which is the first thing you want when reading one back.
+            context = replace(context, client_id=SERVICE_NAME)
         token = tracing.set_current(context)
         structlog.contextvars.bind_contextvars(**context.as_log_fields())
         started = time.perf_counter()

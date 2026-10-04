@@ -16,11 +16,17 @@ dependencies = [
     "uvicorn[standard]>=0.32",
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
-    "httpx>=0.27",
+    # httpx2, not httpx: the MCP 2.x client transports are built on it, and
+    # every connector in this repo imports it directly. Pinning the major
+    # version keeps a resolver from satisfying `mcp` with httpx 0.x and
+    # leaving `import httpx2` to fail at runtime.
+    "httpx2>=2.13,<3",
+    "anyio>=4.6",
     "python-dotenv>=1.0",
     "structlog>=24.4",
-    "tenacity>=9.0",
-    "mcp>=1.2",
+    # 2.x for `mcp.server.mcpserver.MCPServer`, server middleware and the
+    # `meta=` argument on `ClientSession.call_tool` that carries the trace.
+    "mcp>=2.2,<3",
     "rank-bm25>=0.2.2",
     "chromadb>=0.5.20",
     "pypdf>=5.1",
@@ -32,7 +38,6 @@ dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
     "pytest-cov>=6.0",
-    "respx>=0.21",
     "ruff>=0.8",
     "mypy>=1.13",
     "types-requests",

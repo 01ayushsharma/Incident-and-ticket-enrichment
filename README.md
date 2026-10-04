@@ -2,10 +2,17 @@
 
 [![CI](https://github.com/01ayushsharma/Incident-and-ticket-enrichment/actions/workflows/ci.yml/badge.svg)](https://github.com/01ayushsharma/Incident-and-ticket-enrichment/actions/workflows/ci.yml)
 
-A copilot that turns a natural-language request into a fully evidenced
-incident draft: it reaches alarm and ticket data **only through a
-candidate-built MCP server**, grounds its answers in a **retrieved document
-corpus**, and **will not create a ticket without human approval**.
+**Selected use case: Incident and Ticket Enrichment Copilot** — the assigned
+use case, implemented end to end ([brief](docs/assignment/Assignment_Use_Case.md)).
+
+An operator describes an alarm situation in plain language. The copilot
+resolves the asset, finds and ranks the alarms that matter, correlates them
+across equipment, retrieves the governing procedure from a document corpus,
+finds how comparable incidents were resolved, and hands back a drafted
+ticket with every claim attributed. It reaches alarm and ticket data **only
+through a candidate-built MCP server**, grounds its answers in **retrieved
+documents with checkable citations**, and **will not create a ticket without
+human approval**.
 
 > Senior Software Engineer – Copilot Integration assignment.
 > The brief is in [docs/assignment/](docs/assignment/).
@@ -63,6 +70,74 @@ make run-gui            # :8501  Streamlit GUI
 | *Show open tickets linked to correlated assets for Crude Charge Motor 501* | Correlation widens the search to co-alarming assets, then finds their open tickets |
 | *What is the mandatory response to a boiler drum level low alarm?* | Pure retrieval; cites SAF-020 §3 |
 | *What is our policy on expense claims?* | **Says it doesn't know** rather than inventing an answer |
+
+### What one of them actually returns
+
+The acceptance scenario, run against the default deterministic provider -
+so this is reproducible on a clean checkout with no API key:
+
+```
+POST /chat
+{"message": "Investigate recurring high-severity alarms for Boiler Feed Pump 101
+             over the last 90 days, retrieve the relevant operating procedure
+             and recommend actions"}
+```
+
+**MCP execution trace** — eight tools, chained, one trace id throughout:
+
+| # | Tool | Status | ms | System |
+|---:|---|---|---:|---|
+| 1 | `search_assets` | ok | 380.4 | alarm-api |
+| 2 | `list_alarms` | ok | 86.6 | alarm-api |
+| 3 | `summarize_alarms` | ok | 24.8 | alarm-api |
+| 4 | `list_alarms` | ok | 15.5 | alarm-api |
+| 5 | `get_alarm_trends` | ok | 25.2 | alarm-api |
+| 6 | `correlate_alarms` | ok | 35.2 | alarm-api |
+| 7 | `recommend_operator_actions` | ok | 41.0 | alarm-api |
+| 8 | `find_similar_tickets` | ok | 220.3 | ticketing-api |
+
+Step 1 resolves *"Boiler Feed Pump 101"* to `AST-0001`; every later step is
+fed by an id an earlier one produced.
+
+**Answer** (abridged — the deterministic provider writes a structured
+summary; a real model writes prose over the same evidence):
+
+> **High Vibration** on **Boiler Feed Pump 101**.
+>
+> **Assessment.** The evidence assembled from the alarm system and the
+> document corpus is set out below; every claim is attributable to a cited
+> source.
+>
+> **Documented guidance.** The applicable procedures are [1], [2], [3], [4], [5].
+>
+> **Comparable cases.** Previous incidents on similar equipment: INC-1006,
+> INC-1048, INC-1055.
+
+**Citations** — each excerpt is verified by a test to appear verbatim in the
+file it names:
+
+```json
+[
+  {
+    "marker": "[1]", "doc_id": "OP-114", "score": 0.858,
+    "title": "Boiler Feedwater Pump Operating Procedure",
+    "heading": "4. Abnormal condition response > 4.3 High vibration",
+    "source_path": "OP-114-boiler-feedwater-pump-operating-procedure.md",
+    "excerpt": "1. Take a spectrum reading and compare with the last route measurement. 2. Trend bearing temperature alongside vibration. A joint rise indicates bearing degradation rather than a process excitation. ... If overall vibration exceeds 9 mm/s, plan a transfer to standby within the shift."
+  },
+  {
+    "marker": "[3]", "doc_id": "KB-PUMP", "score": 0.818,
+    "title": "Historical Resolution Notes - Pump",
+    "heading": "High Vibration - Shaft misalignment",
+    "source_path": "KB-resolution-notes-pump.md",
+    "excerpt": "..."
+  }
+]
+```
+
+**Response envelope**: `intent=investigate_asset`, `tools_discovered=20`,
+`low_confidence=false`, `degraded=[]`, `trace_id=trace-7f3c1e9a4b26`,
+`created_ticket=null` — `/chat` cannot create a ticket under any plan.
 
 ---
 
@@ -205,22 +280,31 @@ make test-e2e
 make coverage
 ```
 
-**189 tests, all passing.** No API key required for any of them.
+**325 tests, all passing.** No API key required for any of them.
 
 | Suite | Count | Covers |
 |---|---:|---|
-| Simulator contract | 74 | Auth, trace, pagination, sorting, error envelope, determinism |
+| Simulator contract | 74 | Auth, trace, pagination, sorting, error envelope, determinism, analytics |
 | Ticketing | 31 | Similarity, the write gates, idempotency |
-| Postman chaining | 13 | All ten CHAIN flows replayed with their assertions |
+| LLM adapters | 26 | Request shape, auth header, structured output, error mapping, retries |
+| Postman chaining | 11 | The CHAIN flows replayed with their assertions |
 | MCP contracts | 31 | Discovery, schemas, chaining, error mapping, auth, health |
-| Orchestration | 37 | Intent, chaining, partial failure, LLM degradation, priority matrix |
-| RAG | 50 | Relevance, citations, filters, low confidence, injection |
-| End-to-end | 11 | The acceptance scenario and the full incident-to-ticket journey |
+| MCP transport | 10 | Streamable HTTP over real sockets, trace propagation into the source systems |
+| Resilience | 11 | Retry limits, backoff, timeouts, which writes may be replayed |
+| Orchestration | 45 | Intent, chaining, partial failure, LLM degradation, priority matrix |
+| RAG | 73 | Relevance, citations, filters, low confidence, injection |
+| End-to-end | 13 | The acceptance scenario and the full incident-to-ticket journey |
+
+These counts are generated, not maintained by hand — see
+[docs/coverage-summary.md](docs/coverage-summary.md), which
+`scripts/generate_coverage_summary.py` writes from the coverage data.
 
 The tests assert on *meaning*, not on status codes. They caught, among
 others: BM25 max-normalisation making the low-confidence gate unreachable;
-`doc_type` filtering leaking lexical hits; and the mandatory acceptance
-scenario making zero MCP calls because of first-match-wins intent rules.
+`doc_type` filtering leaking lexical hits; the mandatory acceptance scenario
+making zero MCP calls because of first-match-wins intent rules; and an
+unreachable MCP server surfacing as a `CancelledError` that would have
+crashed the backend at startup instead of degrading.
 
 ---
 
@@ -305,6 +389,7 @@ across all six processes. Screenshots go in
 [docs/screenshots/](docs/screenshots/).
 
 **Coverage:** [docs/coverage-summary.md](docs/coverage-summary.md) — 88%
+branch coverage over 5,281 statements
 overall, with the gaps named rather than averaged away.
 
 ## Licence

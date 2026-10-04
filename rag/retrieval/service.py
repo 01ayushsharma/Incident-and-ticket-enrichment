@@ -74,7 +74,11 @@ class RetrievalService:
         fused = self._fuse(dense, lexical)
         fused = self._apply_soft_filters(fused, asset_type, alarm_name, site)
 
-        ranked = sorted(fused.values(), key=lambda c: -c.score)
+        # `chunk_id` breaks ties explicitly. Without it the order of equally
+        # scored chunks falls back to insertion order - dense hits first,
+        # then lexical - which is an implementation detail that would shift
+        # the moment either retriever's ordering changed.
+        ranked = sorted(fused.values(), key=lambda c: (-c.score, c.chunk_id))
         total_candidates = len(ranked)
         kept = [c for c in ranked if c.score >= floor][:k]
 

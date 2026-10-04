@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from collections.abc import Iterator
+from collections.abc import Awaitable, Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -54,6 +54,94 @@ class UpstreamToolError(RuntimeError):
     @property
     def payload(self) -> dict[str, Any]:
         return self.error.as_tool_payload()
+
+
+# ---------------------------------------------------------------------------
+# Trace propagation
+# ---------------------------------------------------------------------------
+# An MCP call is JSON-RPC, so the caller's trace cannot ride on an HTTP
+# header alone: over stdio there is no header, and over streamable HTTP the
+# SDK's transport opens one connection and reuses it for every call, so any
+# header set at connect time is the same for all of them. The per-call
+# channel is the request's `_meta` object, which both transports carry
+# verbatim. Headers are still read as a fallback, because an MCP client that
+# is not this copilot (the Inspector, Claude Desktop, a gateway) may set one.
+TRACE_META_KEY = "trace_id"
+REQUEST_ID_META_KEY = "request_id"
+CLIENT_ID_META_KEY = "client_id"
+METADATA_TAG_META_KEY = "metadata_tag"
+
+
+def _first_str(source: Mapping[str, Any] | None, *keys: str) -> str | None:
+    """First key in ``source`` with a non-empty string value."""
+    if not source:
+        return None
+    for key in keys:
+        value = source.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def trace_context_from(
+    meta: Mapping[str, Any] | None,
+    headers: Mapping[str, str] | None,
+) -> tracing.TraceContext:
+    """Rebuild the caller's trace context, generating only what is absent.
+
+    Precedence is `_meta`, then headers, then a fresh id. A generated id is
+    prefixed `trace-mcp-` so that a log line makes it obvious the trace
+    started at this hop rather than at the copilot's edge.
+    """
+    trace_id = _first_str(meta, TRACE_META_KEY) or _first_str(
+        headers, tracing.TRACE_HEADER, "x-trace-id"
+    )
+    if not trace_id:
+        traceparent = _first_str(headers, "traceparent")
+        if traceparent:
+            parts = traceparent.split("-")
+            if len(parts) >= 3 and len(parts[1]) == 32:
+                trace_id = parts[1]
+    if not trace_id:
+        trace_id = f"trace-mcp-{uuid.uuid4().hex[:12]}"
+
+    request_id = (
+        _first_str(meta, REQUEST_ID_META_KEY)
+        or _first_str(headers, tracing.REQUEST_ID_HEADER)
+        or uuid.uuid4().hex
+    )
+    client_id = _first_str(meta, CLIENT_ID_META_KEY) or _first_str(
+        headers, tracing.CLIENT_ID_HEADER
+    )
+    metadata_tag = _first_str(meta, METADATA_TAG_META_KEY) or _first_str(
+        headers, tracing.METADATA_TAG_HEADER
+    )
+    return tracing.TraceContext(
+        trace_id=trace_id[:128],
+        request_id=request_id[:128],
+        client_id=client_id,
+        metadata_tag=metadata_tag,
+    )
+
+
+async def trace_middleware(ctx: Any, call_next: Callable[[Any], Awaitable[Any]]) -> Any:
+    """Bind the caller's trace for the whole of one inbound MCP message.
+
+    Registered on the server, so it wraps every request - not just tool
+    calls - and runs before argument validation. Binding here rather than
+    inside each tool is what makes the id reach the Alarm and ticketing
+    APIs: :class:`connectors.source_client.SourceSystemClient` reads the
+    same contextvar when it builds its outbound headers.
+    """
+    context = trace_context_from(
+        getattr(ctx, "meta", None),
+        getattr(getattr(ctx, "request", None), "headers", None),
+    )
+    token = tracing.set_current(context)
+    try:
+        return await call_next(ctx)
+    finally:
+        tracing.reset_current(token)
 
 
 @dataclass
@@ -190,9 +278,10 @@ def tool_span(tool_name: str, **fields: Any) -> Iterator[Timer]:
     MCP tool error. That is the single place where "the Alarm API returned
     503" turns into something a language model can reason about.
     """
-    # An MCP client may drive this server directly (Claude Desktop, the MCP
-    # Inspector) without establishing a trace. Start one here so that every
-    # tool call is traceable into the source systems' logs regardless.
+    # Backstop. In the server, `trace_middleware` has already bound a trace
+    # by the time any tool runs. This covers the other caller: a test or a
+    # script that invokes a tool function directly, with no inbound message
+    # and therefore no middleware.
     token = None
     if tracing.current().trace_id == "untraced":
         token = tracing.set_current(
