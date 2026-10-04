@@ -1,0 +1,154 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, "feature/**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONPATH: .:services:mcp-servers/alarm-management:apps/backend:apps/frontend
+  # No API key is configured anywhere in CI. The whole suite runs against the
+  # deterministic LLM provider, which is the point of that provider existing.
+  LLM_PROVIDER: fake
+
+jobs:
+  quality:
+    name: Lint and type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Ruff lint
+        run: ruff check .
+      - name: Ruff format check
+        run: ruff format --check .
+      - name: Mypy
+        run: mypy services connectors mcp-servers apps rag
+        continue-on-error: true
+
+  test:
+    name: Tests and coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      # The ONNX embedding model is ~79MB and is fetched on first use; caching
+      # it keeps the RAG suite from re-downloading on every run.
+      - name: Cache embedding model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/chroma
+          key: chroma-onnx-all-MiniLM-L6-v2
+      - name: Unit tests
+        run: pytest -m unit --no-header -q
+      - name: Integration tests (MCP contracts, chaining, Postman flows)
+        run: pytest -m integration --no-header -q
+      - name: End-to-end test (MCP + RAG in one workflow)
+        run: pytest -m e2e --no-header -q
+      - name: Full suite with coverage
+        run: pytest --cov --cov-report=xml --cov-report=term-missing --no-header -q
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            coverage.xml
+            htmlcov/
+          if-no-files-found: ignore
+
+  security:
+    name: Dependency and secret checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install audit tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit detect-secrets
+      - name: Audit dependencies for known vulnerabilities
+        run: pip-audit --strict --desc || true
+      - name: Scan for committed secrets
+        run: |
+          detect-secrets scan --all-files \
+            --exclude-files '\.venv/|\.git/|test-data/|\.index/' \
+            > /tmp/secrets.json
+          python - <<'PY'
+          import json
+          with open("/tmp/secrets.json") as handle:
+              report = json.load(handle)
+          findings = report.get("results", {})
+          if findings:
+              print("Potential secrets found:")
+              for path, entries in findings.items():
+                  for entry in entries:
+                      print(f"  {path}:{entry.get('line_number')} {entry.get('type')}")
+              raise SystemExit(1)
+          print("No secrets detected.")
+          PY
+
+  build:
+    name: Docker build and stack smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Tagged as :latest, which is what docker-compose.yml names, so the
+      # compose step reuses this image instead of building it a second time.
+      - name: Build the image
+        run: docker build -t ite-copilot:latest .
+      - name: Start the stack
+        run: docker compose up -d --no-build --wait --wait-timeout 420
+      - name: Verify every service is healthy
+        run: |
+          set -e
+          curl -fsS http://localhost:8000/health   | head -c 200; echo
+          curl -fsS http://localhost:8100/health   | head -c 200; echo
+          curl -fsS http://localhost:8080/health   | head -c 400; echo
+          curl -fsS http://localhost:8501/_stcore/health; echo
+      - name: Run the acceptance scenario against the running stack
+        run: |
+          set -e
+          response=$(curl -fsS -X POST http://localhost:8080/chat \
+            -H 'Content-Type: application/json' \
+            -d '{"message":"Investigate recurring high-severity alarms for Boiler Feed Pump 101 over the last 90 days, retrieve the relevant operating procedure and recommend actions"}')
+          echo "$response" | python -c "
+          import json, sys
+          body = json.load(sys.stdin)
+          tools = [s['tool'] for s in body['mcp_trace']]
+          docs = [c['doc_id'] for c in body['citations']]
+          print('tools    :', tools)
+          print('citations:', docs)
+          assert tools, 'no MCP tools were called'
+          assert docs, 'no documents were cited'
+          assert body['created_ticket'] is None, 'chat must never create a ticket'
+          print('acceptance scenario OK')
+          "
+      - name: Dump logs on failure
+        if: failure()
+        run: docker compose logs --tail 200
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

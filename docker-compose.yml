@@ -1,0 +1,182 @@
+# Full stack: two source systems, the MCP server, the copilot backend, the
+# GUI, and a one-shot job that builds the retrieval index.
+#
+#     docker compose up --build
+#     open http://localhost:8501
+#
+# Runs with no API key. `LLM_PROVIDER` defaults to the deterministic provider,
+# so tool orchestration, retrieval and citations are all live out of the box.
+#
+# Dependency ordering is enforced with health checks rather than `depends_on`
+# alone: the copilot's MCP client connects at startup, so it must not start
+# before the MCP server is actually serving, and the MCP server must not start
+# before the source systems answer.
+
+x-build: &build
+  build:
+    context: .
+    dockerfile: Dockerfile
+
+x-logging: &logging
+  environment: &common-env
+    LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    LOG_FORMAT: ${LOG_FORMAT:-json}
+
+services:
+  # ---------------------------------------------------------------- sources
+  alarm-api:
+    <<: *build
+    image: ite-copilot:latest
+    container_name: ite-alarm-api
+    command: >
+      python -m uvicorn alarm_api.main:app
+      --host 0.0.0.0 --port 8000 --log-config=/dev/null
+    environment:
+      <<: *common-env
+      ALARM_API_TOKEN: ${ALARM_API_TOKEN:-demo-token}
+      ALARM_API_SEED: ${ALARM_API_SEED:-20260501}
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 15s
+
+  ticketing-api:
+    <<: *build
+    image: ite-copilot:latest
+    container_name: ite-ticketing-api
+    command: >
+      python -m uvicorn ticketing_api.main:app
+      --host 0.0.0.0 --port 8100 --log-config=/dev/null
+    environment:
+      <<: *common-env
+      TICKETING_API_TOKEN: ${TICKETING_API_TOKEN:-demo-ticket-token}
+    ports:
+      - "8100:8100"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8100/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 15s
+
+  # ------------------------------------------------------------ RAG indexing
+  # A one-shot job, not a service. The backend waits for it to complete so it
+  # never starts against an empty index. The named volume means a restart
+  # reuses the index and the cached embedding model instead of rebuilding.
+  rag-ingest:
+    <<: *build
+    image: ite-copilot:latest
+    container_name: ite-rag-ingest
+    command: python -m rag.ingestion.cli --rebuild
+    environment:
+      <<: *common-env
+      DOCUMENT_PATH: /app/rag/documents
+      VECTOR_STORE_PATH: /app/.index/chroma
+    volumes:
+      - rag-index:/app/.index
+    restart: "no"
+
+  # ------------------------------------------------------------- MCP server
+  alarm-mcp:
+    <<: *build
+    image: ite-copilot:latest
+    container_name: ite-alarm-mcp
+    command: python -m alarm_mcp
+    environment:
+      <<: *common-env
+      MCP_TRANSPORT: http
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "9000"
+      ALARM_API_BASE_URL: http://alarm-api:8000
+      ALARM_API_TOKEN: ${ALARM_API_TOKEN:-demo-token}
+      ALARM_API_TIMEOUT_SECONDS: ${ALARM_API_TIMEOUT_SECONDS:-10}
+      ALARM_API_MAX_RETRIES: ${ALARM_API_MAX_RETRIES:-3}
+      TICKETING_API_URL: http://ticketing-api:8100
+      TICKETING_API_TOKEN: ${TICKETING_API_TOKEN:-demo-ticket-token}
+    ports:
+      - "9000:9000"
+    depends_on:
+      alarm-api:
+        condition: service_healthy
+      ticketing-api:
+        condition: service_healthy
+    healthcheck:
+      # The MCP endpoint rejects a bare GET, which is itself proof the server
+      # is listening and routing - a connection refusal looks different.
+      test: ["CMD-SHELL", "curl -sS -o /dev/null http://localhost:9000/mcp || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 15s
+
+  # --------------------------------------------------------- copilot backend
+  backend:
+    <<: *build
+    image: ite-copilot:latest
+    container_name: ite-backend
+    command: >
+      python -m uvicorn copilot.api.app:app
+      --host 0.0.0.0 --port 8080 --log-config=/dev/null
+    environment:
+      <<: *common-env
+      MCP_TRANSPORT: http
+      MCP_SERVER_URL: http://alarm-mcp:9000/mcp
+      MCP_TOOL_TIMEOUT_SECONDS: ${MCP_TOOL_TIMEOUT_SECONDS:-30}
+      LLM_PROVIDER: ${LLM_PROVIDER:-fake}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_DEGRADED_FALLBACK: ${LLM_DEGRADED_FALLBACK:-true}
+      DOCUMENT_PATH: /app/rag/documents
+      VECTOR_STORE_PATH: /app/.index/chroma
+      RAG_TOP_K: ${RAG_TOP_K:-5}
+      RAG_MIN_SCORE: ${RAG_MIN_SCORE:-0.32}
+    ports:
+      - "8080:8080"
+    volumes:
+      - rag-index:/app/.index
+    depends_on:
+      alarm-mcp:
+        condition: service_healthy
+      rag-ingest:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 25s
+
+  # -------------------------------------------------------------------- GUI
+  gui:
+    <<: *build
+    image: ite-copilot:latest
+    container_name: ite-gui
+    command: >
+      streamlit run apps/frontend/gui/app.py
+      --server.port 8501 --server.address 0.0.0.0
+      --server.headless true --browser.gatherUsageStats false
+    environment:
+      <<: *common-env
+      COPILOT_API_URL: http://backend:8080
+      COPILOT_API_TIMEOUT: ${COPILOT_API_TIMEOUT:-120}
+    ports:
+      - "8501:8501"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8501/_stcore/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+volumes:
+  # Holds the Chroma index and the cached ONNX embedding model, so a restart
+  # does not re-download ~79MB or re-embed the corpus.
+  rag-index:

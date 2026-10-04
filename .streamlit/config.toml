@@ -1,0 +1,47 @@
+[client]
+# Viewer options only: keeps the theme toggle in the top-right menu while
+# hiding Deploy, Rerun and Clear cache - this is an operator tool, not a
+# Streamlit Community Cloud app.
+toolbarMode = "viewer"
+
+[theme]
+# ABB brand: neutral surfaces, ABB Red used sparingly for primary actions
+# and alarm emphasis. Shared by both palettes below; the menu offers
+# Light, Dark and "use system setting".
+primaryColor = "#FF000F"
+redColor = "#FF000F"
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+baseRadius = "0.6rem"
+buttonRadius = "0.6rem"
+showWidgetBorder = true
+showSidebarBorder = true
+headingFontWeights = [600, 600, 600, 600, 600, 600]
+
+[theme.light]
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F4F4F4"
+textColor = "#1F1F1F"
+borderColor = "#E3E3E3"
+linkColor = "#D6000D"
+codeTextColor = "#B0000A"
+codeBackgroundColor = "#F4F4F4"
+
+[theme.light.sidebar]
+backgroundColor = "#F7F7F7"
+secondaryBackgroundColor = "#EDEDED"
+
+[theme.dark]
+backgroundColor = "#141414"
+secondaryBackgroundColor = "#222222"
+textColor = "#EDEDED"
+borderColor = "#323232"
+linkColor = "#FF4D57"
+codeTextColor = "#FF7A82"
+codeBackgroundColor = "#222222"
+
+[theme.dark.sidebar]
+backgroundColor = "#0E0E0E"
+secondaryBackgroundColor = "#1C1C1C"
+
+[server]
+headless = true

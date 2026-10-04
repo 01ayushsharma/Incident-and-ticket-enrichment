@@ -1,0 +1,111 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "incident-ticket-enrichment-copilot"
+version = "0.1.0"
+description = "Incident and Ticket Enrichment Copilot - MCP + RAG over an Alarm Management API simulator"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Ayush Sharma" }]
+
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+    "structlog>=24.4",
+    "tenacity>=9.0",
+    "mcp>=1.2",
+    "rank-bm25>=0.2.2",
+    "chromadb>=0.5.20",
+    "pypdf>=5.1",
+    "streamlit>=1.40",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "respx>=0.21",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "types-requests",
+]
+# Optional real LLM providers. The stack runs without any of these.
+llm = [
+    "anthropic>=0.40",
+    "google-genai>=0.3",
+    "openai>=1.57",
+]
+
+[project.scripts]
+ite-ingest = "rag.ingestion.cli:main"
+ite-alarm-mcp = "alarm_mcp.__main__:main"
+
+[tool.setuptools.packages.find]
+where = [".", "services", "mcp-servers/alarm-management", "apps/backend", "apps/frontend"]
+include = ["rag*", "connectors*", "alarm_api*", "ticketing_api*", "alarm_mcp*", "copilot*", "gui*"]
+exclude = ["tests*", "postman*", "docs*"]
+
+[tool.setuptools.package-data]
+rag = ["documents/*.md", "documents/**/*.md"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests", "rag/tests"]
+# Strict, not auto: async tests declare their runner explicitly. The
+# integration and e2e suites use anyio (`@pytest.mark.anyio`) because
+# their fixtures span a task group, which pytest-auto mode mishandles.
+asyncio_mode = "strict"
+addopts = "-q --strict-markers"
+markers = [
+    "unit: fast isolated tests with no I/O",
+    "integration: tests that wire two or more components together",
+    "e2e: full workflow tests (MCP + RAG + orchestration)",
+    "slow: tests that download models or build a real index",
+]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.coverage.run]
+branch = true
+source = ["rag", "connectors", "alarm_api", "ticketing_api", "alarm_mcp", "copilot"]
+omit = ["*/tests/*", "*/__main__.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "C4", "SIM", "RUF"]
+ignore = ["E501", "B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["N802", "N803"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_ignores = true
+warn_redundant_casts = true
+ignore_missing_imports = true
+plugins = ["pydantic.mypy"]
+# The packages live under several source roots (see setuptools above); name
+# them so each file maps to exactly one module.
+mypy_path = ".:services:mcp-servers/alarm-management:apps/backend:apps/frontend"
+explicit_package_bases = true
+namespace_packages = true

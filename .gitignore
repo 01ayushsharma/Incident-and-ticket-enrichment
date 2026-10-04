@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Secrets & local config
+.env
+.env.local
+*.pem
+*.key
+
+# RAG artefacts (rebuildable via `make ingest`)
+.index/
+rag/.chroma/
+rag/.chromadb/
+*.faiss
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Runtime
+*.log
+.streamlit/secrets.toml

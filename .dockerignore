@@ -1,0 +1,32 @@
+# Build context exclusions.
+#
+# Note the absence of a blanket `*.md` rule: the RAG corpus in
+# rag/documents/ is markdown, and excluding it would produce an image whose
+# retrieval index is empty - a failure that only shows up at query time.
+
+.venv/
+venv/
+.git/
+.github/
+.index/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+**/__pycache__/
+*.pyc
+*.pyo
+.coverage
+.coverage.*
+coverage.xml
+.env
+.env.local
+.streamlit/secrets.toml
+*.log
+
+# Not needed at runtime. Tests run in CI against the source tree, not the
+# image, and the docs/postman folders are reference material.
+tests/
+docs/
+postman/
+Makefile

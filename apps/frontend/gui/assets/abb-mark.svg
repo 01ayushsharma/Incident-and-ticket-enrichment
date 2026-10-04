@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 202 100" width="202" height="100">
+  <!-- ABB wordmark: solid red letters split by one horizontal gap across
+       the middle and a vertical gap through each letter. -->
+  <defs>
+    <mask id="grid">
+      <rect width="202" height="100" fill="#fff"/>
+      <rect x="0" y="47.5" width="202" height="4.5" fill="#000"/>
+      <rect x="30.7" y="0" width="3.6" height="100" fill="#000"/>
+      <rect x="90" y="0" width="3.6" height="100" fill="#000"/>
+      <rect x="160" y="0" width="3.6" height="100" fill="#000"/>
+    </mask>
+  </defs>
+  <g fill="#FF000F" mask="url(#grid)">
+    <path fill-rule="evenodd" d="M19.5 0H45.5L65 100H0Z M21.5 100L28.6 52H36.4L43.5 100Z"/>
+    <path d="M69 0H107A24 24 0 0 1 107 48H69Z M69 52H109A24 24 0 0 1 109 100H69Z"/>
+    <path d="M139 0H177A24 24 0 0 1 177 48H139Z M139 52H179A24 24 0 0 1 179 100H139Z"/>
+  </g>
+</svg>
