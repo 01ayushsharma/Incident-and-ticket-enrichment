@@ -32,7 +32,7 @@ from gui.client import ApiResult, CopilotClient
 from gui.theme import LOGO_MARK, MARK_HTML, apply_abb_theme
 
 st.set_page_config(
-    page_title="ABB Alarm Copilot",
+    page_title="Incident & Ticket Enrichment Copilot",
     page_icon=LOGO_MARK,
     layout="wide",
     initial_sidebar_state="expanded",
@@ -456,7 +456,7 @@ def render_welcome() -> None:
     with st.container(key="welcome"):
         st.html(
             f'<div class="welcome-head"><div class="welcome-brand">{MARK_HTML}'
-            "<h1>Alarm Copilot</h1></div>"
+            "<h1>Incident &amp; Ticket Enrichment Copilot</h1></div>"
             "<p>How can I help with your plant today?</p></div>"
         )
         prompt = st.chat_input("Ask about an alarm, an asset or an incident…", key="hero-input")
@@ -710,7 +710,7 @@ def export_markdown(chat: dict[str, Any], index: int) -> str:
     question = next(
         (m["content"] for m in reversed(chat["messages"][:index]) if m["role"] == "user"), ""
     )
-    lines = ["# ABB Alarm Copilot", ""]
+    lines = ["# Incident & Ticket Enrichment Copilot", ""]
     if question:
         lines += [f"**Question:** {question}", ""]
     lines += [message["content"], ""]

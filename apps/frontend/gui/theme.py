@@ -49,15 +49,14 @@ h1, h2, h3, h4 { letter-spacing: -0.015em; }
    the theme's text colour instead of being baked into the SVG. */
 [data-testid="stSidebarHeader"] > div:first-child { display: flex; align-items: center; }
 [data-testid="stSidebarHeader"] > div:first-child::after {
-  content: "Alarm Copilot";
+  content: "Incident & Ticket Enrichment Copilot";
   margin-left: 0.7rem;
   padding-left: 0.7rem;
   border-left: 1px solid var(--line);
   color: var(--ink);
   font-weight: 600;
-  font-size: 1rem;
-  line-height: 1.4rem;
-  white-space: nowrap;
+  font-size: 0.9rem;
+  line-height: 1.15rem;
 }
 
 /* The sidebar collapse control is hover-only by default; keep it visible. */
@@ -72,7 +71,7 @@ h1, h2, h3, h4 { letter-spacing: -0.015em; }
 .welcome-brand { display: inline-flex; align-items: center; gap: 1rem; margin-bottom: 1rem; }
 .welcome-brand .abb-mark { height: 2.6rem; }
 .welcome-brand h1 {
-  font-size: 2.3rem; font-weight: 600; margin: 0; padding: 0 0 0 1rem; line-height: 2.6rem;
+  font-size: 1.9rem; font-weight: 600; margin: 0; padding: 0 0 0 1rem; line-height: 2.3rem;
   border-left: 2px solid var(--line); color: var(--ink); letter-spacing: -0.02em;
 }
 .welcome-head p { color: var(--ink-2); font-size: 1.15rem; margin: 0; }
