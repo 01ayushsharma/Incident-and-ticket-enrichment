@@ -422,7 +422,7 @@ _No arguments._
       "system": "ticketing-api",
       "reachable": true,
       "status": "ok",
-      "detail": "{\"tickets\": 272, \"by_status\": {\"closed\": 161, \"resolved\": 62, \"open\": 28, \"in_progress\": 21}, \"open_tickets\": 49, \"source\": \"C:\\\\Users\\\\SharmaAy.AP\\\\OneDrive - Unisys\\\\Documents\\\\Incident-and-Ticket-Enrichment\\\\test-data\\\\seed_tickets.json\"}",
+      "detail": "{\"tickets\": 272, \"by_status\": {\"closed\": 161, \"resolved\": 62, \"open\": 28, \"in_progress\": 21}, \"open_tickets\": 49, \"source\": \"test-data/seed_tickets.json\"}",
       "base_url": "http://localhost:8100"
     }
   ],

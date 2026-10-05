@@ -11,6 +11,12 @@
 # alone: the copilot's MCP client connects at startup, so it must not start
 # before the MCP server is actually serving, and the MCP server must not start
 # before the source systems answer.
+#
+# The uvicorn commands pass no --log-config on purpose. There is no CLI spelling
+# for the in-process `log_config=None`, and a path like /dev/null is rejected by
+# `logging.config.fileConfig` as an empty file. It is not needed anyway:
+# connectors.observability.configure_logging reclaims the root logger with
+# `basicConfig(force=True)` and disables uvicorn's access log at app import.
 
 x-build: &build
   build:
@@ -30,7 +36,7 @@ services:
     container_name: ite-alarm-api
     command: >
       python -m uvicorn alarm_api.main:app
-      --host 0.0.0.0 --port 8000 --log-config=/dev/null
+      --host 0.0.0.0 --port 8000
     environment:
       <<: *common-env
       ALARM_API_TOKEN: ${ALARM_API_TOKEN:-demo-token}
@@ -50,7 +56,7 @@ services:
     container_name: ite-ticketing-api
     command: >
       python -m uvicorn ticketing_api.main:app
-      --host 0.0.0.0 --port 8100 --log-config=/dev/null
+      --host 0.0.0.0 --port 8100
     environment:
       <<: *common-env
       TICKETING_API_TOKEN: ${TICKETING_API_TOKEN:-demo-ticket-token}
@@ -120,7 +126,7 @@ services:
     container_name: ite-backend
     command: >
       python -m uvicorn copilot.api.app:app
-      --host 0.0.0.0 --port 8080 --log-config=/dev/null
+      --host 0.0.0.0 --port 8080
     environment:
       <<: *common-env
       MCP_TRANSPORT: http
@@ -165,7 +171,9 @@ services:
       COPILOT_API_URL: http://backend:8080
       COPILOT_API_TIMEOUT: ${COPILOT_API_TIMEOUT:-120}
     ports:
-      - "8501:8501"
+      # Host side is overridable: 8501 is Streamlit's default, so a local
+      # `streamlit run` outside Docker will already be holding it.
+      - "${GUI_PORT:-8501}:8501"
     depends_on:
       backend:
         condition: service_healthy
