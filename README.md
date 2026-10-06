@@ -380,7 +380,8 @@ over real sockets, and CI exercises the compose stack.
 
 ## Demo
 
-**Video:** *(link once uploaded — see [docs/demo.md](docs/demo.md) for the shot list)*
+**Video:** :https://www.youtube.com/watch?v=t3evvJoodcw
+
 
 [docs/demo.md](docs/demo.md) is a timed walkthrough covering tool discovery,
 the full incident-to-ticket journey, the approval gate and its idempotency,
